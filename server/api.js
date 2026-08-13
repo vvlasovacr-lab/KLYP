@@ -647,6 +647,37 @@ export const buildApi = async ({notify}) => {
 		return reply.send(fs.createReadStream(video.output_path));
 	});
 
+	// Лог монтажа для админа. Когда ролик падает на сервере, причина видна
+	// только здесь: у нас нет доступа к машине, где он собирался.
+	app.post('/api/admin/log/:id', async (req, reply) => {
+		const user = await auth(req, reply);
+		if (!user) return;
+		if (!user.is_admin) return reply.code(403).send({error: 'Только для администратора'});
+
+		const dir = path.join(config.storage.root, 'engine', String(req.params.id));
+		const out = {};
+
+		for (const [name, file] of [
+			['render', path.join(dir, 'render.log')],
+			['engine', path.join(dir, 'logs')],
+		]) {
+			try {
+				if (name === 'engine') {
+					const files = await fsp.readdir(file);
+					const last = files.filter((f) => f.endsWith('.json')).pop();
+					out[name] = last ? (await fsp.readFile(path.join(file, last), 'utf8')).slice(-2000) : null;
+				} else {
+					const text = await fsp.readFile(file, 'utf8');
+					out[name] = text.slice(-6000);
+				}
+			} catch (err) {
+				out[name] = `нет: ${err.code ?? err.message}`;
+			}
+		}
+
+		return out;
+	});
+
 	app.get('/', async (req, reply) => reply.redirect('/app/'));
 
 	return app;

@@ -9,7 +9,7 @@
 // работал в своей папке и заказы не мешали друг другу.
 
 import fs from 'node:fs/promises';
-import {existsSync} from 'node:fs';
+import fsSync, {existsSync} from 'node:fs';
 import path from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -260,7 +260,7 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 	const args = [
 		'remotion', 'render', 'src/index.jsx', 'Full', outFile,
 		`--props=${propsFile}`,
-		'--log=error',
+		'--log=verbose',
 		// Сервер слабее рабочей машины: кадр с видео и шрифтами может
 		// собираться дольше стандартных тридцати секунд, и рендер падал
 		// по таймауту на ровном месте.
@@ -286,10 +286,17 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 				reject(new Error(`Рендер не уложился в ${config.render.timeoutMin} минут`));
 			}, config.render.timeoutMin * 60_000);
 
+			// Весь вывод рендера пишем рядом с заказом. Без этого падение
+			// на сервере выглядит как «что-то пошло не так», и причину
+			// приходится угадывать по одной за деплой.
+			const logFile = path.join(dir, 'render.log');
 			let tail = '';
+
 			const watch = (buf) => {
 				const text = String(buf);
 				tail = (tail + text).slice(-6000);
+				fsSync.appendFileSync(logFile, text);
+
 				const done = text.match(/(\d{1,3})%/);
 				// рендер занимает отрезок с 48% до 97%
 				if (done) onProgress?.(Math.min(96, 48 + Math.round(Number(done[1]) * 0.49)));
