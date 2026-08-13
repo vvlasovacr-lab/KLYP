@@ -265,8 +265,13 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 		// собираться дольше стандартных тридцати секунд, и рендер падал
 		// по таймауту на ровном месте.
 		`--timeout=${config.render.frameTimeoutMs}`,
-		`--concurrency=${config.render.concurrencyPerRender}`,
 	];
+
+	// Число потоков задаём, только если попросили явно: сам Remotion
+	// определяет доступные ядра точнее нас.
+	if (config.render.concurrencyPerRender) {
+		args.push(`--concurrency=${config.render.concurrencyPerRender}`);
+	}
 
 	// На сервере нет видеокарты, а браузер по умолчанию всё равно идёт
 	// к ней и виснет на первом же кадре с видео. swangle — отрисовка
