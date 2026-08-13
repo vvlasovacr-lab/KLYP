@@ -11,6 +11,35 @@ nixPkgs = [
   "freetype",
 ]
 
+# Remotion рисует кадр в настоящем браузере, а тот тянет за собой
+# два десятка системных библиотек. Без них скачанный Chrome падает
+# с «error while loading shared libraries» ещё до первого кадра.
+nixLibs = [
+  "glib",
+  "nss",
+  "nspr",
+  "atk",
+  "at-spi2-atk",
+  "at-spi2-core",
+  "cups",
+  "dbus",
+  "libdrm",
+  "libxkbcommon",
+  "mesa",
+  "expat",
+  "alsa-lib",
+  "pango",
+  "cairo",
+  "libGL",
+  "xorg.libX11",
+  "xorg.libXcomposite",
+  "xorg.libXdamage",
+  "xorg.libXext",
+  "xorg.libXfixes",
+  "xorg.libXrandr",
+  "xorg.libxcb",
+]
+
 [variables]
 REMOTION_CHROME_EXECUTABLE = "/nix/var/nix/profiles/default/bin/chromium"
 PUPPETEER_SKIP_DOWNLOAD = "1"

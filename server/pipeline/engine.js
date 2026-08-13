@@ -117,32 +117,12 @@ const python = () => {
 // корнем и ищет рядом style_profiles.json, font_profiles.json, corrections.json
 // и остальные словари. Пути заказа при этом абсолютные — они уходят
 // в наше хранилище, а не в папку движка.
-// Черновик рендерится в уменьшенном кадре: время рендера растёт как
-// площадь, поэтому масштаб 0.6 даёт выигрыш почти втрое.
-//
-// Вместе с кадром обязаны уменьшиться и отступы со шрифтами — они заданы
-// в пикселях под 1080×1920. Иначе на маленькой канве поля съедят кадр,
-// и черновик покажет не то, что выйдет в чистовике.
-const scalePixels = (block, scale, keys) => {
-	const out = {...block};
-	for (const key of keys) {
-		if (typeof out[key] === 'number') out[key] = Math.round(out[key] * scale);
-	}
-	return out;
-};
-
-const TEXT_PX = [
-	'horizontal_margin', 'left_margin', 'right_margin', 'top_margin', 'bottom_margin',
-	'animation_padding', 'minimum_side_width', 'face_safety_padding', 'camera_safety_padding',
-	'minimum_body_font_px', 'minimum_display_font_px', 'minimum_stroke_px', 'maximum_stroke_px',
-];
-const SUB_PX = ['font_size', 'hero_font_size', 'outline', 'shadow', 'line_spacing', 'margin_vertical'];
-
+// Движок всегда считает вёрстку под полный кадр 1080×1920. Уменьшать
+// канву для черновика нельзя: он проверяет, влезает ли текст в отведённые
+// поля, и на маленькой канве отказывается верстать вовсе. Черновик мельчает
+// уже на рендере — ключом --scale, вёрстки это не касается.
 const writeConfig = async ({video, dir}) => {
 	const base = JSON.parse(await fs.readFile(path.join(ENGINE, 'config.json'), 'utf8'));
-
-	const scale = video.preview_only ? config.render.previewScale : 1;
-	const even = (n) => Math.round((n * scale) / 2) * 2; // кодек не любит нечётные стороны
 
 	const merged = {
 		...base,
@@ -157,16 +137,8 @@ const writeConfig = async ({video, dir}) => {
 			...base.remotion,
 			// проект Remotion тоже общий — он не зависит от заказа
 			project_dir: path.join(ENGINE, 'remotion'),
-			width: even(base.remotion?.width ?? 1080),
-			height: even(base.remotion?.height ?? 1920),
-			...(video.preview_only ? {crf: 26} : {}),
 		},
 	};
-
-	if (scale !== 1) {
-		merged.text_composition = scalePixels(base.text_composition ?? {}, scale, TEXT_PX);
-		merged.subtitles = scalePixels(base.subtitles ?? {}, scale, SUB_PX);
-	}
 
 	const file = path.join(ENGINE, `config.job-${video.id}.json`);
 	await fs.writeFile(file, JSON.stringify(merged, null, 2), 'utf8');
