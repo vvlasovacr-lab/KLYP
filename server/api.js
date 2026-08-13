@@ -118,12 +118,25 @@ export const buildApi = async ({notify}) => {
 	// ── справочники ────────────────────────────────────────────
 	// Версия сборки: без неё непонятно, доехал ли до сервера свежий код
 	// или он крутит старый и чинишь ты вхолостую.
-	app.get('/api/health', async () => ({
-		ok: true,
-		lava: hasLava(),
-		speech: config.speech.provider,
-		build: (process.env.RAILWAY_GIT_COMMIT_SHA || 'local').slice(0, 7),
-	}));
+	app.get('/api/health', async () => {
+		const os = await import('node:os');
+		const gb = (bytes) => Math.round((bytes / 1073741824) * 10) / 10;
+
+		return {
+			ok: true,
+			lava: hasLava(),
+			speech: config.speech.provider,
+			build: (process.env.RAILWAY_GIT_COMMIT_SHA || 'local').slice(0, 7),
+			// Рендер видео упирается в память и ядра. Когда монтаж падает
+			// без объяснений, первым делом смотрят сюда: Chrome под каждую
+			// вкладку берёт сотни мегабайт и его молча убивают при нехватке.
+			machine: {
+				cores: os.cpus().length,
+				memoryGb: gb(os.totalmem()),
+				freeGb: gb(os.freemem()),
+			},
+		};
+	});
 
 	// Шрифты, из которых клиент выбирает в мини-аппе. Список берётся
 	// из того, что реально лежит в public/fonts: положил файл — появился
