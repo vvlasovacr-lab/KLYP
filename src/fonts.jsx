@@ -5,7 +5,7 @@ const face = (family, file) => `
 	font-family: '${family}';
 	src: url('${staticFile(`fonts/${file}`)}') format('truetype');
 	font-weight: 100 900;
-	font-display: block;
+	font-display: swap;
 }`;
 
 export const Fonts = () => (
