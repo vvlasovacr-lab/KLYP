@@ -1,0 +1,53 @@
+{
+  "marker": "PRE_MOTION_DONOR_RC",
+  "created_at": "2026-08-12T16:56:00+07:00",
+  "baseline": "TALKING_HEAD_V1_RC",
+  "baseline_status": "FROZEN_CANDIDATE",
+  "baseline_verdict": "SHOWCASE_READY_WITH_COSMETIC_WARNINGS",
+  "workspace_git_state": {
+    "is_git_worktree": false,
+    "head": null,
+    "modified_files": null,
+    "note": "C:\\ShortsAI is not a Git worktree; no destructive reset was attempted. File hashes are used as the local baseline marker."
+  },
+  "versions": {
+    "renderer_contract": "0.1.0",
+    "remotion": "4.0.507",
+    "react": "19.2.8",
+    "react_dom": "19.2.8",
+    "node": "24.14.0",
+    "package_manager": "pnpm 11.16.0",
+    "visual_director_policy": 2,
+    "director_execution_contract": 2,
+    "montage_plan_contract": 4
+  },
+  "hashes_sha256": {
+    "remotion/pnpm-lock.yaml": "F906E0AB6C116270AD89C961A630BADD4C6BE7A73F3F0C6728DDDB92433A1D9F",
+    "talking_head_v1_rc.json": "36DF202FC8D25274AFE64A9D9D471646CADEDEBFD20F68A9DFDE55E1EF0C474D",
+    "config.json": "D77E110708F3C018A6F57AAB95501B43ED0A6F4976421A5056BC9802BE6B8A7B",
+    "style_profiles.json": "032330DA764DBE21978B42B502B94DB53B099A7957316D0460310A0D1C2B4F5C",
+    "motion_profiles.json": "C891951441311BC16F062418158B357EA1303475560D0C7FB8E65367B3D457AA"
+  },
+  "motion_registry": [
+    "SOFT_POP", "HARD_POP", "IMPACT_SCALE", "SPRING_IN", "WORD_STAGGER",
+    "SLIDE_SIDE", "CALM_REVEAL", "STAGGER", "POP", "BOUNCE", "SCALE_IN",
+    "SLIDE_UP", "SLIDE_LEFT", "BLUR_REVEAL", "TYPEWRITER", "SHAKE", "PUNCH"
+  ],
+  "effect_registry": [
+    "SUBTLE_FLASH", "BLUR_IMPACT", "MICRO_SHAKE", "RARE_GLITCH", "DIM_CONTRAST_TREATMENT"
+  ],
+  "transition_registry": ["HARD_CUT", "FAST_FADE", "CONTROLLED_BLUR", "SUBTLE_SCALE"],
+  "typography_implementation": [
+    "Subtitles.jsx", "HybridTypography.jsx", "KineticWord.jsx", "NumberScene.jsx",
+    "TitleCard.jsx", "Shout.jsx", "ContrastScene.jsx", "effects/motion.js"
+  ],
+  "baseline_artifacts": {
+    "showcase": "C:\\ShortsAI\\output\\showcase_v1",
+    "release_report_json": "C:\\ShortsAI\\output\\showcase_v1\\release_report.json",
+    "release_report_md": "C:\\ShortsAI\\output\\showcase_v1\\release_report.md",
+    "representative_frames": 30,
+    "motion_previews": 10,
+    "real_auto_renders": ["kitchen", "raw_episode", "studio"]
+  },
+  "production_import_rule": "Production must not import from research/motion_donors/sources."
+}

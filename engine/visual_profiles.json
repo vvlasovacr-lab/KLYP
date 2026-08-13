@@ -1,0 +1,6 @@
+{
+  "SOCIAL_CONTRAST": {"contrast": 1.08, "saturation": 1.06, "brightness": 1.0, "vignette": 0.10, "filmGrain": 0.025, "lut": "SOCIAL_WARM"},
+  "CLEAN_PREMIUM": {"contrast": 1.035, "saturation": 0.98, "brightness": 1.01, "vignette": 0.07, "filmGrain": 0.012, "lut": "CLEAN_NEUTRAL"},
+  "PODCAST_WARM": {"contrast": 1.045, "saturation": 0.96, "brightness": 1.0, "vignette": 0.12, "filmGrain": 0.018, "lut": "PODCAST_WARM"},
+  "CINEMATIC_STORY": {"contrast": 1.10, "saturation": 0.88, "brightness": 0.98, "vignette": 0.20, "filmGrain": 0.045, "lut": "CINEMATIC_AMBER"}
+}

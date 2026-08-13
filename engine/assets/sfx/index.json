@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "root": "/Users/malinovskii/reels-studio/engine/assets/sfx",
+  "assets": [
+    {
+      "id": "ef0b1656e177",
+      "file": "bass_hit/bass_hit_deep.wav",
+      "category": "bass_hit",
+      "duration": 0.48,
+      "tags": [
+        "bass",
+        "bass_hit",
+        "deep",
+        "hit"
+      ],
+      "usable": true
+    },
+    {
+      "id": "ddd349aca75e",
+      "file": "click/click_clean.wav",
+      "category": "click",
+      "duration": 0.09,
+      "tags": [
+        "clean",
+        "click"
+      ],
+      "usable": true
+    },
+    {
+      "id": "d4f0eb220967",
+      "file": "impact/impact_low.wav",
+      "category": "impact",
+      "duration": 0.42,
+      "tags": [
+        "impact",
+        "low"
+      ],
+      "usable": true
+    },
+    {
+      "id": "cb6ca37033a9",
+      "file": "pop/pop_soft.wav",
+      "category": "pop",
+      "duration": 0.2,
+      "tags": [
+        "pop",
+        "soft"
+      ],
+      "usable": true
+    },
+    {
+      "id": "61241145d9c0",
+      "file": "transition/transition_air.wav",
+      "category": "transition",
+      "duration": 0.72,
+      "tags": [
+        "air",
+        "transition"
+      ],
+      "usable": true
+    },
+    {
+      "id": "53fe95e18e2c",
+      "file": "whoosh/whoosh_soft.wav",
+      "category": "whoosh",
+      "duration": 0.55,
+      "tags": [
+        "soft",
+        "whoosh"
+      ],
+      "usable": true
+    }
+  ],
+  "errors": []
+}

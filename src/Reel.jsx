@@ -1,0 +1,265 @@
+import {
+	AbsoluteFill,
+	Audio,
+	Easing,
+	OffthreadVideo,
+	Sequence,
+	interpolate,
+	spring,
+	staticFile,
+	useCurrentFrame,
+	useVideoConfig,
+} from 'remotion';
+import {useMemo} from 'react';
+import {Fonts} from './fonts.jsx';
+import {Subtitles} from './Subtitles.jsx';
+import {TitleCard} from './TitleCard.jsx';
+import {Shout} from './Shout.jsx';
+import {BrollCard} from './BrollCard.jsx';
+import {retime} from './retime.js';
+import {readPlan} from './timeline.js';
+import {CAMERA, CARD, CUT, TITLE} from './style.js';
+import {SFX, buildCues} from './sfx.js';
+
+// рывок кадра, вспышка и расфокус на стыке
+const useCutEffect = (time, cutAt) => {
+	const {fps} = useVideoConfig();
+	if (!CUT.on) return {punch: 1, flash: 0, tint: CUT.base, blur: 0};
+
+	const cut = cutAt(time);
+	const tint = CUT[cut?.kind] ?? CUT.base;
+	const since = cut ? Math.round((time - cut.t) * fps) : Infinity;
+
+	const punch =
+		since < CUT.punchFrames
+			? interpolate(since, [0, CUT.punchFrames], [1 + CUT.punch, 1], {
+					easing: Easing.out(Easing.cubic),
+					extrapolateRight: 'clamp',
+				})
+			: 1;
+
+	const flash =
+		since < CUT.flashFrames
+			? interpolate(since, [0, CUT.flashFrames], [tint.alpha, 0], {
+					easing: Easing.out(Easing.quad),
+					extrapolateRight: 'clamp',
+				})
+			: 0;
+
+	// расфокус на стыке: резкость наводится обратно за десяток кадров
+	const depth = cut?.kind === 'broll' ? CUT.blurBroll : CUT.blur;
+	const blur =
+		since < CUT.blurFrames
+			? interpolate(since, [0, CUT.blurFrames], [depth, 0], {
+					easing: Easing.out(Easing.cubic),
+					extrapolateRight: 'clamp',
+				})
+			: 0;
+
+	return {punch, flash, tint, blur};
+};
+
+// медленный дрейф на всю длину + короткий наезд на каждом акценте
+const useCameraZoom = (time, fromSeconds, accentStarts) => {
+	const frame = useCurrentFrame();
+	const {fps, durationInFrames} = useVideoConfig();
+
+	const drift = interpolate(frame, [0, durationInFrames], [0, CAMERA.drift], {
+		extrapolateRight: 'clamp',
+	});
+
+	// важен только последний сработавший акцент
+	const last = accentStarts
+		.filter((s) => time >= s && time < s + CAMERA.settle)
+		.pop();
+
+	const settle = spring({
+		frame: frame - Math.round(((last ?? 0) - fromSeconds) * fps),
+		fps,
+		config: {damping: 18, stiffness: 90, mass: 0.9},
+	});
+	const punch = last === undefined ? 0 : CAMERA.punch * (1 - settle);
+
+	return CAMERA.on ? 1 + drift + punch : 1;
+};
+
+// ГОВОРЯЩИЙ В КАДРЕ.
+//
+// Движок вырезает паузы и слегка ускоряет вялые куски, поэтому выходное
+// время больше не совпадает с исходным: тридцатая секунда ролика может быть
+// тридцать четвёртой секундой съёмки. Каждый кусок ставится отдельным
+// отрезком со своим startFrom и скоростью — стык получается незаметным,
+// потому что режется он там, где человек молчал.
+//
+// Без плана речевого монтажа играем исходник как есть.
+const Speaker = ({source, speech, fromSeconds, style}) => {
+	const {fps, durationInFrames} = useVideoConfig();
+	const file = staticFile(source || 'base.mp4');
+
+	if (!speech?.length) {
+		return (
+			<OffthreadVideo
+				src={file}
+				startFrom={Math.round(fromSeconds * fps)}
+				endAt={Math.round(fromSeconds * fps) + durationInFrames}
+				style={style}
+			/>
+		);
+	}
+
+	return speech.map((part, i) => {
+		const from = Math.round((part.at - fromSeconds) * fps);
+		const length = Math.max(1, Math.round((part.until - part.at) * fps));
+		if (from + length < 0 || from > durationInFrames) return null;
+
+		return (
+			<Sequence key={i} from={from} durationInFrames={length} layout="none">
+				<AbsoluteFill style={{overflow: 'hidden'}}>
+					<OffthreadVideo
+						src={file}
+						startFrom={Math.round(part.from * fps)}
+						endAt={Math.round(part.to * fps)}
+						playbackRate={part.speed}
+						style={style}
+					/>
+				</AbsoluteFill>
+			</Sequence>
+		);
+	});
+};
+
+export const Reel = ({chunks, plan, speech, source, fromSeconds = 0}) => {
+	const frame = useCurrentFrame();
+	const {fps, durationInFrames} = useVideoConfig();
+
+	// Разметка приходит извне: у каждого ролика она своя.
+	// Без плана берётся образцовая — так студия открывается как раньше.
+	const tl = useMemo(() => readPlan(plan), [plan]);
+	const cues = useMemo(() => buildCues(tl.raw), [tl]);
+
+	const time = fromSeconds + frame / fps;
+	const zoom = useCameraZoom(time, fromSeconds, tl.accentStarts);
+	const {punch, flash, tint, blur} = useCutEffect(time, tl.cutAt);
+
+	// Реплики от движка уже разбиты по смыслу и проверены на слепые зоны —
+	// пересобирать их своим ретаймом значило бы ломать чужую работу.
+	// Своя пересборка нужна только сырой расшифровке.
+	const lines = useMemo(
+		() => (speech?.length ? chunks : retime(chunks)),
+		[chunks, speech]
+	);
+
+	// Оформление этого ролика: палитра, раскладка, шрифт. Приходит из плана,
+	// а не выбирается здесь — рендер обязан быть повторяемым.
+	const look = plan?.look ?? null;
+
+	const title = tl.title ?? TITLE;
+	const titleOnScreen = time >= title.in && time < title.out;
+	const shout = tl.shoutAt(time);
+	const broll = tl.brollAt(time);
+
+	// живая врезка входит и уходит так же мягко, как графическая
+	const brollFade = broll
+		? Math.min(
+				interpolate(time, [broll.from, broll.from + CARD.fadeIn], [0, 1], {
+					extrapolateLeft: 'clamp',
+					extrapolateRight: 'clamp',
+				}),
+				interpolate(time, [broll.to - CARD.fadeOut, broll.to], [1, 0], {
+					extrapolateLeft: 'clamp',
+					extrapolateRight: 'clamp',
+				})
+			)
+		: 0;
+	const brollBlur = broll
+		? interpolate(time, [broll.from, broll.from + CARD.fadeIn], [CARD.blurIn, 0], {
+				extrapolateLeft: 'clamp',
+				extrapolateRight: 'clamp',
+			})
+		: 0;
+
+	return (
+		<AbsoluteFill style={{backgroundColor: '#000'}}>
+			<Fonts />
+
+			<AbsoluteFill style={{overflow: 'hidden'}}>
+				<Speaker
+					source={source}
+					speech={speech}
+					fromSeconds={fromSeconds}
+					style={{
+						width: '100%',
+						height: '100%',
+						objectFit: 'cover',
+						transform: `scale(${zoom * punch * (broll?.zoom ?? 1)})`,
+						filter: blur > 0.1 ? `blur(${blur}px)` : 'none',
+					}}
+				/>
+			</AbsoluteFill>
+
+			{/* перебивка перекрывает базу целиком: свой файл либо карточка */}
+			{broll?.file ? (
+				// Sequence сдвигает отсчёт: клип начинается со входа врезки,
+				// а не с нуля таймлайна — иначе короткий файл кончится раньше
+				<Sequence
+					from={Math.round((broll.from - fromSeconds) * fps)}
+					durationInFrames={Math.ceil((broll.to - broll.from) * fps)}
+					layout="none"
+				>
+					<AbsoluteFill style={{overflow: 'hidden', opacity: brollFade}}>
+						<OffthreadVideo
+							src={staticFile(`broll/${broll.file}`)}
+							startFrom={Math.round((broll.startFrom ?? 0) * fps)}
+							style={{
+								width: '100%',
+								height: '100%',
+								objectFit: 'cover',
+								transform: `scale(${punch})`,
+								filter: brollBlur > 0.1 ? `blur(${brollBlur}px)` : 'none',
+							}}
+							muted
+						/>
+					</AbsoluteFill>
+				</Sequence>
+			) : broll?.card ? (
+				<BrollCard shot={broll} time={time} fromSeconds={fromSeconds} />
+			) : null}
+
+			{flash > 0 ? (
+				<AbsoluteFill style={{backgroundColor: `rgba(${tint.rgb},${flash})`}} />
+			) : null}
+
+			{SFX.on
+				? cues.map((cue, i) => {
+						const at = Math.round((cue.at - fromSeconds) * fps);
+						if (at + 30 < 0 || at > durationInFrames) return null;
+						return (
+							<Sequence key={i} from={at} durationInFrames={30}>
+								<Audio
+									src={staticFile(`sfx/${cue.name}.wav`)}
+									volume={cue.volume * SFX.master}
+								/>
+							</Sequence>
+						);
+					})
+				: null}
+
+			{/* плашка и выкрик перебивают обычные титры — иначе текст дублируется */}
+			{titleOnScreen ? (
+				<TitleCard title={title} time={time} fromSeconds={fromSeconds} look={look} />
+			) : shout ? (
+				<Shout shout={shout} fromSeconds={fromSeconds} look={look} />
+			) : (
+				<Subtitles
+					chunks={lines}
+					time={time}
+					fromSeconds={fromSeconds}
+					isAccent={tl.isAccent}
+					onCard={Boolean(tl.brollAt)}
+					brollAt={tl.brollAt}
+					look={look}
+				/>
+			)}
+		</AbsoluteFill>
+	);
+};

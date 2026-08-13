@@ -1,0 +1,28 @@
+# Сборка на Railway. Контейнеру нужны обе половины системы:
+# Node для API, бота и очереди — и Python для монтажного движка.
+
+[phases.setup]
+nixPkgs = [
+  "nodejs_22",
+  "python312",
+  "ffmpeg-full",
+  "chromium",
+  "fontconfig",
+  "freetype",
+]
+
+[variables]
+REMOTION_CHROME_EXECUTABLE = "/nix/var/nix/profiles/default/bin/chromium"
+PUPPETEER_SKIP_DOWNLOAD = "1"
+# Движок берёт Python из окружения сборки, свой venv в контейнере не нужен
+PYTHON_BIN = "python3"
+
+[phases.install]
+cmds = [
+  "npm ci --omit=dev || npm install --omit=dev",
+  # Remotion внутри движка ставится отдельно: у него свой package.json
+  "cd engine/remotion && (npm ci --omit=dev || npm install --omit=dev)",
+]
+
+[start]
+cmd = "npm start"

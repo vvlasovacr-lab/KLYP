@@ -1,0 +1,106 @@
+[
+ {
+  "t": 3.4,
+  "kind": "base"
+ },
+ {
+  "t": 6.3,
+  "kind": "broll"
+ },
+ {
+  "t": 7.9,
+  "kind": "base"
+ },
+ {
+  "t": 7.9,
+  "kind": "back"
+ },
+ {
+  "t": 10.4,
+  "kind": "base"
+ },
+ {
+  "t": 11.3,
+  "kind": "broll"
+ },
+ {
+  "t": 13.0,
+  "kind": "base"
+ },
+ {
+  "t": 13.0,
+  "kind": "back"
+ },
+ {
+  "t": 15.6,
+  "kind": "broll"
+ },
+ {
+  "t": 17.2,
+  "kind": "base"
+ },
+ {
+  "t": 17.2,
+  "kind": "back"
+ },
+ {
+  "t": 20.0,
+  "kind": "base"
+ },
+ {
+  "t": 21.9,
+  "kind": "broll"
+ },
+ {
+  "t": 23.5,
+  "kind": "base"
+ },
+ {
+  "t": 23.5,
+  "kind": "back"
+ },
+ {
+  "t": 26.9,
+  "kind": "base"
+ },
+ {
+  "t": 29.4,
+  "kind": "base"
+ },
+ {
+  "t": 33.9,
+  "kind": "base"
+ },
+ {
+  "t": 38.1,
+  "kind": "base"
+ },
+ {
+  "t": 39.3,
+  "kind": "broll"
+ },
+ {
+  "t": 41.0,
+  "kind": "base"
+ },
+ {
+  "t": 41.0,
+  "kind": "back"
+ },
+ {
+  "t": 42.6,
+  "kind": "broll"
+ },
+ {
+  "t": 44.0,
+  "kind": "base"
+ },
+ {
+  "t": 44.0,
+  "kind": "back"
+ },
+ {
+  "t": 46.3,
+  "kind": "base"
+ }
+]

@@ -1,0 +1,643 @@
+{
+  "mode": "MOTION_DONOR_AB",
+  "resolution": "540x960",
+  "fps": 30,
+  "runtime_dependencies_added": [],
+  "all_preview_full_decode": true,
+  "promoted_summary": [
+    {
+      "candidate": "decaying-micro-shake",
+      "current_seconds": 7.467,
+      "donor_seconds": 7.499,
+      "delta_percent": 0.4,
+      "material_penalty": false
+    },
+    {
+      "candidate": "controlled-blur-transition",
+      "current_seconds": 7.55,
+      "donor_seconds": 7.45,
+      "delta_percent": -1.3,
+      "material_penalty": false
+    }
+  ],
+  "candidates": [
+    {
+      "id": "soft-reveal",
+      "source": "degueba/onda",
+      "curve": "overdamped spring + 6px blur + 10px rise",
+      "verdict": "BACKLOG_V1_1"
+    },
+    {
+      "id": "phrase-build",
+      "source": "degueba/onda",
+      "curve": "4-frame restrained word stagger",
+      "verdict": "BACKLOG_V1_1"
+    },
+    {
+      "id": "accent-highlight",
+      "source": "degueba/onda",
+      "curve": "two-phase text then highlight bar",
+      "verdict": "KEEP_CURRENT"
+    },
+    {
+      "id": "number-punch",
+      "source": "degueba/onda",
+      "curve": "calm number then label sequence",
+      "verdict": "KEEP_CURRENT"
+    },
+    {
+      "id": "decaying-micro-shake",
+      "source": "degueba/onda",
+      "curve": "seeded per-frame displacement with linear decay",
+      "verdict": "PROMOTE"
+    },
+    {
+      "id": "clean-dissolve",
+      "source": "remotion-dev/remotion + RVE reference",
+      "curve": "overlapping cubic opacity",
+      "verdict": "KEEP_CURRENT"
+    },
+    {
+      "id": "controlled-blur-transition",
+      "source": "degueba/onda + official Remotion reference",
+      "curve": "symmetric 7px blur arc",
+      "verdict": "PROMOTE"
+    },
+    {
+      "id": "clean-push",
+      "source": "degueba/onda",
+      "curve": "restrained 42px cubic push",
+      "verdict": "BACKLOG"
+    },
+    {
+      "id": "ui-callout",
+      "source": "degueba/onda",
+      "curve": "overdamped bubble + line draw",
+      "verdict": "BACKLOG"
+    },
+    {
+      "id": "subtle-vignette",
+      "source": "degueba/onda",
+      "curve": "static edge treatment",
+      "verdict": "KEEP_CURRENT"
+    },
+    {
+      "id": "rare-whip-pan",
+      "source": "reactvideoeditor/remotion-templates",
+      "curve": "150px displacement + 14px blur",
+      "verdict": "REJECT"
+    }
+  ],
+  "measurements": [
+    {
+      "candidate": "soft-reveal",
+      "variant": "current",
+      "render_seconds": 7.464,
+      "file_bytes": 101353,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "soft-reveal",
+      "variant": "donor",
+      "render_seconds": 7.514,
+      "file_bytes": 107873,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "phrase-build",
+      "variant": "current",
+      "render_seconds": 7.457,
+      "file_bytes": 111096,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "phrase-build",
+      "variant": "donor",
+      "render_seconds": 7.423,
+      "file_bytes": 114447,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "accent-highlight",
+      "variant": "current",
+      "render_seconds": 7.455,
+      "file_bytes": 93298,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "accent-highlight",
+      "variant": "donor",
+      "render_seconds": 7.465,
+      "file_bytes": 88643,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "number-punch",
+      "variant": "current",
+      "render_seconds": 7.53,
+      "file_bytes": 116899,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "number-punch",
+      "variant": "donor",
+      "render_seconds": 7.476,
+      "file_bytes": 118687,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "decaying-micro-shake",
+      "variant": "current",
+      "render_seconds": 7.467,
+      "file_bytes": 95737,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "decaying-micro-shake",
+      "variant": "donor",
+      "render_seconds": 7.499,
+      "file_bytes": 93936,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "clean-dissolve",
+      "variant": "current",
+      "render_seconds": 7.065,
+      "file_bytes": 102593,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "clean-dissolve",
+      "variant": "donor",
+      "render_seconds": 7.559,
+      "file_bytes": 102462,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "controlled-blur-transition",
+      "variant": "current",
+      "render_seconds": 7.55,
+      "file_bytes": 105520,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "controlled-blur-transition",
+      "variant": "donor",
+      "render_seconds": 7.45,
+      "file_bytes": 107127,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "clean-push",
+      "variant": "current",
+      "render_seconds": 7.432,
+      "file_bytes": 110247,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "clean-push",
+      "variant": "donor",
+      "render_seconds": 7.525,
+      "file_bytes": 112065,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "ui-callout",
+      "variant": "current",
+      "render_seconds": 7.574,
+      "file_bytes": 104742,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "ui-callout",
+      "variant": "donor",
+      "render_seconds": 7.5,
+      "file_bytes": 103973,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "subtle-vignette",
+      "variant": "current",
+      "render_seconds": 7.354,
+      "file_bytes": 88084,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "subtle-vignette",
+      "variant": "donor",
+      "render_seconds": 7.462,
+      "file_bytes": 87311,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "rare-whip-pan",
+      "variant": "current",
+      "render_seconds": 7.495,
+      "file_bytes": 102401,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    },
+    {
+      "candidate": "rare-whip-pan",
+      "variant": "donor",
+      "render_seconds": 7.468,
+      "file_bytes": 107762,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 540,
+            "height": 960,
+            "r_frame_rate": "30/1",
+            "side_data_list": [
+              {}
+            ]
+          }
+        ],
+        "format": {
+          "duration": "1.856000"
+        }
+      },
+      "render_log_tail": ""
+    }
+  ]
+}

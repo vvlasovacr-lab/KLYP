@@ -1,0 +1,33 @@
+{
+  "presets": {
+    "SOFT_POP": {"duration": 0.18, "startScale": 0.96, "peakScale": 1.055, "damping": 24, "stiffness": 245, "mass": 0.54, "offset": {"x": 0, "y": 4}},
+    "HARD_POP": {"duration": 0.22, "startScale": 0.82, "peakScale": 1.14, "damping": 20, "stiffness": 290, "mass": 0.40, "offset": {"x": 0, "y": 8}},
+    "IMPACT_SCALE": {"duration": 0.20, "startScale": 0.78, "peakScale": 1.15, "damping": 21, "stiffness": 310, "mass": 0.38, "offset": {"x": 0, "y": 5}},
+    "SPRING_IN": {"duration": 0.26, "startScale": 0.86, "peakScale": 1.08, "damping": 22, "stiffness": 255, "mass": 0.48, "offset": {"x": 0, "y": 9}},
+    "WORD_STAGGER": {"duration": 0.17, "startScale": 0.98, "peakScale": 1.0, "damping": 26, "stiffness": 235, "mass": 0.60, "offset": {"x": 0, "y": 6}},
+    "SLIDE_SIDE": {"duration": 0.24, "startScale": 1.0, "peakScale": 1.0, "damping": 24, "stiffness": 220, "mass": 0.62, "offset": {"x": 18, "y": 0}},
+    "CALM_REVEAL": {"duration": 0.18, "startScale": 0.98, "peakScale": 1.0, "damping": 24, "stiffness": 205, "mass": 0.68, "offset": {"x": 0, "y": 6}},
+    "STAGGER": {"duration": 0.18, "startScale": 0.97, "peakScale": 1.0, "damping": 23, "stiffness": 210, "mass": 0.65, "offset": {"x": 0, "y": 7}},
+    "POP": {"duration": 0.20, "startScale": 0.88, "peakScale": 1.10, "damping": 19, "stiffness": 270, "mass": 0.42, "offset": {"x": 0, "y": 0}},
+    "BOUNCE": {"duration": 0.24, "startScale": 0.82, "peakScale": 1.13, "damping": 18, "stiffness": 255, "mass": 0.46, "offset": {"x": 0, "y": 12}},
+    "SCALE_IN": {"duration": 0.22, "startScale": 0.82, "peakScale": 1.0, "damping": 21, "stiffness": 240, "mass": 0.50, "offset": {"x": 0, "y": 0}},
+    "SLIDE_UP": {"duration": 0.22, "startScale": 1.0, "peakScale": 1.0, "damping": 22, "stiffness": 225, "mass": 0.58, "offset": {"x": 0, "y": 14}},
+    "SLIDE_LEFT": {"duration": 0.24, "startScale": 1.0, "peakScale": 1.0, "offset": {"x": 24, "y": 0}},
+    "BLUR_REVEAL": {"duration": 0.30, "startScale": 0.98, "peakScale": 1.0, "blur": 10, "offset": {"x": 0, "y": 4}},
+    "TYPEWRITER": {"duration": 0.38, "startScale": 1.0, "peakScale": 1.0, "offset": {"x": 0, "y": 0}},
+    "SHAKE": {"duration": 0.20, "startScale": 1.0, "peakScale": 1.0, "offset": {"x": 6, "y": 2}},
+    "PUNCH": {"duration": 0.22, "startScale": 0.78, "peakScale": 1.16, "damping": 18, "stiffness": 285, "mass": 0.40, "offset": {"x": 0, "y": 8}}
+  },
+  "camera": {
+    "SMOOTH_ZOOM": {"duration": 1.4, "scale": 1.045},
+    "PUNCH_ZOOM": {"duration": 0.75, "scale": 1.12},
+    "PUSH_IN": {"duration": 1.8, "scale": 1.07},
+    "HANDHELD": {"duration": 1.2, "movement": 0.32},
+    "SHAKE": {"duration": 0.18, "movement": 0.75},
+    "PARALLAX": {"duration": 1.5, "movement": 0.45}
+  },
+  "transitions": {
+    "WHIP": {"duration": 0.18}, "FLASH": {"duration": 0.12}, "GLITCH": {"duration": 0.16},
+    "BLUR": {"duration": 0.24}, "SPEED": {"duration": 0.28}
+  }
+}

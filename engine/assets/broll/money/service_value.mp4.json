@@ -1,0 +1,11 @@
+{
+  "tags": ["деньги", "цена", "услуги", "стоимость", "доход", "million", "business", "money"],
+  "category": "money",
+  "topic": "money",
+  "emotion": "aspirational",
+  "styles": ["AGGRESSIVE_SOCIAL", "HIGH_RETENTION", "CLEAN_EXPERT"],
+  "importance": 0.86,
+  "description": "Money and business value visual for income, price and service explanations",
+  "focalPoint": {"x": 0.5, "y": 0.5},
+  "credit": "Original ShortsAI generated asset"
+}

@@ -1,0 +1,22 @@
+node_modules/
+.env
+.env.local
+storage/
+out/
+.DS_Store
+*.log
+.claude/settings.local.json
+public/uploads/
+
+# Монтажный движок: код нужен, окружение и артефакты прогонов — нет
+engine/.venv/
+engine/work/
+engine/output/
+engine/logs/
+engine/input/
+engine/remotion/node_modules/
+engine/remotion/public/jobs/
+engine/**/__pycache__/
+
+# временные конфиги заказов
+engine/config.job-*.json

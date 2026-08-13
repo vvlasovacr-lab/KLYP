@@ -1,0 +1,6 @@
+{
+  "name": "shortsai-motion-donor-sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated A/B harness. Reuses the frozen renderer toolchain without installing donor packages."
+}
