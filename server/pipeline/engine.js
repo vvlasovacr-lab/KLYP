@@ -11,7 +11,7 @@
 import fs from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {config, hasSpeech} from './../config.js';
 
@@ -75,12 +75,39 @@ const findWorkspace = async (dir) => {
 	}
 };
 
-// Движку нужен свой Python: там стоит faster-whisper для запасного пути,
-// когда ключ распознавания не задан или сервис не ответил.
+// Движку нужен свой Python. Локально это venv рядом с движком, на сервере —
+// то, что положил образ. Имя там не всегда python3: nix ставит python3.12,
+// и жёстко зашитое «python3» молча не находится.
+let pythonPath = null;
+
 const python = () => {
-	if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
-	const venv = path.join(ENGINE, '.venv', 'bin', 'python');
-	return existsSync(venv) ? venv : 'python3';
+	if (pythonPath) return pythonPath;
+	if (process.env.PYTHON_BIN) return (pythonPath = process.env.PYTHON_BIN);
+
+	const candidates = [
+		path.join(ENGINE, '.venv', 'bin', 'python'),
+		'python3',
+		'python3.12',
+		'python3.11',
+		'python',
+	];
+
+	for (const candidate of candidates) {
+		// абсолютный путь проверяем на месте, имя — через which
+		if (candidate.includes('/')) {
+			if (existsSync(candidate)) return (pythonPath = candidate);
+			continue;
+		}
+		const found = spawnSync('which', [candidate], {encoding: 'utf8'});
+		if (found.status === 0 && found.stdout.trim()) {
+			return (pythonPath = found.stdout.trim());
+		}
+	}
+
+	throw new Error(
+		'Python не найден. Движок монтажа написан на Python — без него монтаж невозможен. ' +
+		'Проверь, что образ его ставит, или задай PYTHON_BIN.'
+	);
 };
 
 // Движку нужен свой config.json: пути к заказу, стиль, лимиты.
@@ -185,15 +212,39 @@ const ensureFonts = async () => {
 	}
 
 	console.log('  пересобираю манифест шрифтов движка');
-	await new Promise((resolve) => {
+
+	const result = await new Promise((resolve) => {
 		const child = spawn(
 			python(),
 			['-m', 'shortsai.font_inventory', dir, '--output', manifest],
 			{cwd: ENGINE, env: process.env}
 		);
-		child.on('close', () => resolve());
-		child.on('error', () => resolve());
+
+		let tail = '';
+		const watch = (buf) => { tail = (tail + String(buf)).slice(-500); };
+		child.stdout.on('data', watch);
+		child.stderr.on('data', watch);
+
+		child.on('close', (code) => resolve({code, tail}));
+		child.on('error', (err) => resolve({code: -1, tail: err.message}));
 	});
+
+	// Молча проглотить нельзя: без манифеста движок откажется верстать текст,
+	// и клиент увидит невнятное «rejected by font manifest» вместо причины.
+	if (result.code !== 0) {
+		throw new Error(
+			`Не удалось собрать манифест шрифтов (код ${result.code}): ${result.tail.slice(-300)}`
+		);
+	}
+
+	const built = await fs.readFile(manifest, 'utf8').then(JSON.parse).catch(() => null);
+	const parsed = built?.summary?.parsed ?? 0;
+	if (!parsed) {
+		throw new Error(
+			`Манифест шрифтов собрался пустым. Проверь, что файлы шрифтов лежат в ${dir}`
+		);
+	}
+	console.log(`  шрифтов в манифесте: ${parsed}`);
 };
 
 // ── наш рендер ────────────────────────────────────────────────
