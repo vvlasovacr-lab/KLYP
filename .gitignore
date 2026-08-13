@@ -20,3 +20,6 @@ engine/**/__pycache__/
 
 # временные конфиги заказов
 engine/config.job-*.json
+
+# манифест шрифтов собирается на месте: в нём абсолютные пути
+engine/assets/fonts/font_manifest.json

@@ -116,7 +116,14 @@ export const buildApi = async ({notify}) => {
 	};
 
 	// ── справочники ────────────────────────────────────────────
-	app.get('/api/health', async () => ({ok: true, lava: hasLava()}));
+	// Версия сборки: без неё непонятно, доехал ли до сервера свежий код
+	// или он крутит старый и чинишь ты вхолостую.
+	app.get('/api/health', async () => ({
+		ok: true,
+		lava: hasLava(),
+		speech: config.speech.provider,
+		build: (process.env.RAILWAY_GIT_COMMIT_SHA || 'local').slice(0, 7),
+	}));
 
 	// Шрифты, из которых клиент выбирает в мини-аппе. Список берётся
 	// из того, что реально лежит в public/fonts: положил файл — появился
