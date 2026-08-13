@@ -257,8 +257,16 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 		'utf8'
 	);
 
-	const args = ['remotion', 'render', 'src/index.jsx', 'Full', outFile,
-		`--props=${propsFile}`, '--log=error'];
+	const args = [
+		'remotion', 'render', 'src/index.jsx', 'Full', outFile,
+		`--props=${propsFile}`,
+		'--log=error',
+		// Сервер слабее рабочей машины: кадр с видео и шрифтами может
+		// собираться дольше стандартных тридцати секунд, и рендер падал
+		// по таймауту на ровном месте.
+		`--timeout=${config.render.frameTimeoutMs}`,
+		`--concurrency=${config.render.concurrencyPerRender}`,
+	];
 
 	if (video.preview_only) {
 		args.push(`--scale=${config.render.previewScale}`, '--jpeg-quality=70');
@@ -276,7 +284,7 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 			let tail = '';
 			const watch = (buf) => {
 				const text = String(buf);
-				tail = (tail + text).slice(-4000);
+				tail = (tail + text).slice(-6000);
 				const done = text.match(/(\d{1,3})%/);
 				// рендер занимает отрезок с 48% до 97%
 				if (done) onProgress?.(Math.min(96, 48 + Math.round(Number(done[1]) * 0.49)));
@@ -287,8 +295,20 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 			child.on('error', (err) => { clearTimeout(killer); reject(err); });
 			child.on('close', (code) => {
 				clearTimeout(killer);
-				if (code === 0) resolve();
-				else reject(new Error(`Рендер упал (код ${code}): ${tail.slice(-600)}`));
+				if (code === 0) return resolve();
+
+				// Из стека вызовов пользы нет: он про внутренности Remotion.
+				// Ищем строки, которые объясняют причину.
+				const meaningful = tail
+					.split('\n')
+					.filter((line) => /error|fail|timeout|cannot|unable|not found|denied|memory/i.test(line))
+					.filter((line) => !line.trim().startsWith('at '))
+					.slice(0, 4)
+					.join(' | ');
+
+				reject(new Error(
+					`Рендер упал (код ${code}): ${meaningful || tail.slice(-400)}`
+				));
 			});
 		});
 	} finally {

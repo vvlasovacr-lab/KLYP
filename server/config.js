@@ -147,6 +147,13 @@ export const config = {
 		previewCost: Number(opt('PREVIEW_COST', 0.3)),
 		previewScale: Number(opt('PREVIEW_SCALE', 0.45)),
 		timeoutMin: Number(opt('RENDER_TIMEOUT_MIN', 30)),
+		// Сколько ждать один кадр. У Remotion по умолчанию тридцать секунд —
+		// на слабой машине кадр с видео и шрифтами в них не укладывается.
+		frameTimeoutMs: Number(opt('RENDER_FRAME_TIMEOUT_MS', 180000)),
+		// Сколько вкладок браузера рендерят одновременно. Каждая ест
+		// несколько сотен мегабайт: на маленьком сервере больше двух
+		// приводит к тому, что процесс убивают за перерасход памяти.
+		concurrencyPerRender: Number(opt('RENDER_CONCURRENCY_PER_JOB', 2)),
 	},
 
 	packageDays: Number(opt('PACKAGE_DAYS', 90)),
