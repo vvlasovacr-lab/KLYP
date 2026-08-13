@@ -154,6 +154,10 @@ export const config = {
 		// параллельные вкладки читают один и тот же видеофайл, и на сервере
 		// это надёжно вешало рендер на первом же кадре второго диапазона.
 		concurrencyPerRender: Number(opt('RENDER_CONCURRENCY_PER_JOB', 1)),
+		// Отрисовка кадра на процессоре вместо видеокарты. На сервере
+		// без карты — единственный рабочий вариант, на маке — лишнее
+		// замедление, поэтому включается только в проде.
+		softwareGl: (opt('RENDER_SOFTWARE_GL', '') || (process.env.NODE_ENV === 'production' ? '1' : '0')) !== '0',
 	},
 
 	packageDays: Number(opt('PACKAGE_DAYS', 90)),

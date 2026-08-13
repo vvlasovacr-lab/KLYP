@@ -268,6 +268,11 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 		`--concurrency=${config.render.concurrencyPerRender}`,
 	];
 
+	// На сервере нет видеокарты, а браузер по умолчанию всё равно идёт
+	// к ней и виснет на первом же кадре с видео. swangle — отрисовка
+	// на процессоре; на рабочей машине с настоящей картой она не нужна.
+	if (config.render.softwareGl) args.push('--gl=swangle');
+
 	if (video.preview_only) {
 		args.push(`--scale=${config.render.previewScale}`, '--jpeg-quality=70');
 	}
