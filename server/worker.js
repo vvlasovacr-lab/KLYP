@@ -33,6 +33,14 @@ const collectResult = async ({video, run}) => {
 	const poster = path.join(outDir, `${video.id}.jpg`);
 	await makePoster(outFile, poster);
 
+	// Данные, по которым рисовалась картинка, переносим к результату:
+	// рабочую папку движка сейчас снесёт уборка, а по ним потом
+	// разбираются, почему на экране вышло не то.
+	await fs.copyFile(
+		path.join(run.dir, 'output', `${video.id}.props.json`),
+		path.join(outDir, `${video.id}.props.json`)
+	).catch(() => {});
+
 	const sourceBytes = await sizeOf(video.source_path);
 	await cleanupEngineRun(run.dir);
 

@@ -659,7 +659,7 @@ export const buildApi = async ({notify}) => {
 
 		for (const [name, file] of [
 			['render', path.join(dir, 'render.log')],
-			['props', path.join(dir, 'output', `${req.params.id}.props.json`)],
+			['props', path.join(config.storage.root, 'out', String(user.id), `${req.params.id}.props.json`)],
 			['engine', path.join(dir, 'logs')],
 		]) {
 			try {
