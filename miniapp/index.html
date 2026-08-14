@@ -505,7 +505,7 @@ body{
 <div class="stage">
 
   <div class="brandline">
-    <div class="tag"><i></i> Демо интерфейса · кликается</div>
+    <div class="tag"><i></i> Студия монтажа</div>
     <h1>Монтаж, который <span class="serif">залетает</span></h1>
     <p>Эксперт загружает сырое видео и через десять минут забирает готовый рилс с титрами, врезками и звуком.</p>
   </div>
@@ -651,7 +651,7 @@ body{
           <div class="stack">
             <div class="toggle on" data-flip id="t-preview"><div class="sw"></div><div><p>Черновик 480p сначала</p><small>Списывает 0.3 ролика, готов за минуту</small></div></div>
             <div class="toggle on" data-flip><div class="sw"></div><div><p>Держать текст вне слепых зон</p><small>Проверка под Reels, TikTok и Shorts</small></div></div>
-            <div class="toggle" data-flip><div class="sw"></div><div><p>Свои врезки из библиотеки</p><small>14 клипов, загружены раньше</small></div></div>
+            <div class="toggle on" data-flip><div class="sw"></div><div><p>Врезки по смыслу</p><small>Подбираются под то, о чём ты говоришь</small></div></div>
           </div>
 
           <button class="btn wide" style="margin-top:16px" id="start">Смонтировать · 1 ролик из пакета</button>
@@ -1039,7 +1039,12 @@ body{
 
   startBtn.addEventListener('click', function(){
     if (!chosen){ shout('Сначала выбери видео', 'Без исходника монтировать нечего'); return; }
+    upload(1);
+  });
 
+  // Отправка вынесена отдельно, чтобы повторить её при обрыве:
+  // сотня мегабайт с телефона по мобильной сети рвётся регулярно.
+  function upload(attempt){
     var form = new FormData();
     form.append('title', (brief.value.split(/[.\n]/)[0] || 'Новый ролик').slice(0, 120));
     form.append('template', tplCode);
@@ -1106,14 +1111,26 @@ body{
     };
 
     xhr.onerror = function(){
+      // Ключ запроса тот же, поэтому повтор не спишет второй ролик.
+      if (attempt < 3){
+        shout('Связь прервалась', 'Продолжаю загрузку, не закрывай приложение');
+        setTimeout(function(){ upload(attempt + 1); }, 2000);
+        return;
+      }
       startBtn.disabled = false;
       startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
       upbar.style.display = 'none';
-      shout('Связь оборвалась', 'Попробуй ещё раз — ролик не спишется дважды');
+      shout('Не удалось загрузить',
+            'Проверь интернет и попробуй снова — ролик не спишется дважды');
     };
 
+    xhr.ontimeout = xhr.onerror;
+    // Час на загрузку: с телефона сотня мегабайт идёт и двадцать минут,
+    // а браузер по умолчанию сдаётся куда раньше.
+    xhr.timeout = 3600000;
+
     xhr.send(form);
-  });
+  }
 
   /* ═══════════ БИБЛИОТЕКА ═══════════ */
 
