@@ -377,7 +377,8 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 		});
 	} finally {
 		await fs.unlink(staged).catch(() => {});
-		await fs.unlink(propsFile).catch(() => {});
+		// props оставляем: по ним видно, что именно ушло в картинку,
+		// и почему на экране может не оказаться текста
 	}
 
 	return outFile;

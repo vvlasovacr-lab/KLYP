@@ -659,6 +659,7 @@ export const buildApi = async ({notify}) => {
 
 		for (const [name, file] of [
 			['render', path.join(dir, 'render.log')],
+			['props', path.join(dir, 'output', `${req.params.id}.props.json`)],
 			['engine', path.join(dir, 'logs')],
 		]) {
 			try {
@@ -666,6 +667,23 @@ export const buildApi = async ({notify}) => {
 					const files = await fsp.readdir(file);
 					const last = files.filter((f) => f.endsWith('.json')).pop();
 					out[name] = last ? (await fsp.readFile(path.join(file, last), 'utf8')).slice(-2000) : null;
+				} else if (name === 'props') {
+					// целиком он огромный — интересен только состав
+					const p = JSON.parse(await fsp.readFile(file, 'utf8'));
+					out[name] = {
+						реплик: p.chunks?.length ?? 0,
+						акцентов: p.plan?.accents?.length ?? 0,
+						врезок: p.plan?.broll?.length ?? 0,
+						склеек: p.plan?.cuts?.length ?? 0,
+						кусковРечи: p.speech?.length ?? 0,
+						длительность: p.durationInSeconds,
+						источник: p.source,
+						плашка: p.plan?.title?.lines?.map((l) => l.pieces[0].text) ?? null,
+						первыеСлова: p.chunks?.[0]?.words?.map((w) => w.text).join(' ') ?? null,
+						оформление: p.plan?.look
+							? `${p.plan.look.palette.name} · ${p.plan.look.layout.name} · ${p.plan.look.font.name}`
+							: null,
+					};
 				} else {
 					const text = await fsp.readFile(file, 'utf8');
 					out[name] = text.slice(-6000);
