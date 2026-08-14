@@ -219,6 +219,44 @@ const ensureFonts = async () => {
 	console.log(`  шрифтов в манифесте: ${parsed}`);
 };
 
+// ── облегчённая копия исходника ───────────────────────────────
+// Рендер вытаскивает из видео по кадру за раз, и каждый раз декодер
+// разбирает сжатый поток заново. Телефонная съёмка сжата так, чтобы
+// занимать мало места, а не чтобы быстро разбираться: на двух ядрах
+// сервера один кадр обходился в две секунды.
+//
+// Поэтому перед рендером готовим копию, сжатую наоборот — крупнее
+// по размеру, но разбирающуюся мгновенно: каждый кадр самостоятельный,
+// без ссылок на соседние. В монтаже это называется прокси.
+const makeProxy = ({source, target, preview}) =>
+	new Promise((resolve, reject) => {
+		// Черновик всё равно уедет в 486×864 — незачем таскать полный кадр
+		const scale = preview ? 'scale=-2:960' : 'scale=-2:1920';
+
+		const ff = spawn('ffmpeg', [
+			'-v', 'error', '-y',
+			'-i', source,
+			'-vf', scale,
+			'-c:v', 'libx264',
+			'-preset', 'ultrafast',
+			// каждый кадр ключевой: декодер не ищет опорные и не ждёт
+			'-g', '1',
+			'-bf', '0',
+			'-crf', preview ? '26' : '20',
+			'-pix_fmt', 'yuv420p',
+			'-c:a', 'aac', '-b:a', '128k',
+			'-movflags', '+faststart',
+			target,
+		]);
+
+		let tail = '';
+		ff.stderr.on('data', (buf) => { tail = (tail + String(buf)).slice(-400); });
+		ff.on('error', reject);
+		ff.on('close', (code) =>
+			code === 0 ? resolve() : reject(new Error(`Не удалось подготовить исходник: ${tail}`))
+		);
+	});
+
 // ── наш рендер ────────────────────────────────────────────────
 // Remotion читает медиа только из public и при сборке копирует эту папку
 // в свой бандл, поэтому исходник кладём туда настоящей копией и убираем
@@ -227,9 +265,8 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 	const uploads = path.join(ROOT, 'public', 'uploads');
 	await fs.mkdir(uploads, {recursive: true});
 
-	const ext = path.extname(source) || '.mp4';
-	const staged = path.join(uploads, `${video.id}${ext}`);
-	await fs.copyFile(source, staged);
+	const staged = path.join(uploads, `${video.id}.mp4`);
+	await makeProxy({source, target: staged, preview: video.preview_only});
 
 	const outDir = path.join(dir, 'output');
 	await fs.mkdir(outDir, {recursive: true});
