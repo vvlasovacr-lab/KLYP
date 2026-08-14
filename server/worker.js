@@ -225,6 +225,12 @@ const tick = async () => {
 	} catch (err) {
 		await failJob(job, err).catch(() => {});
 	} finally {
+		// Рабочая папка движка весит сотни мегабайт. При успехе её сносит
+		// collectResult, при падении не сносил никто — и диск кончился
+		// после полутора десятков неудачных попыток.
+		await cleanupEngineRun(
+			path.join(config.storage.root, 'engine', String(job.video_id))
+		).catch(() => {});
 		running--;
 	}
 };
@@ -272,8 +278,34 @@ const dropOutput = async (video) => {
 	);
 };
 
+// Рабочие папки движка: всё, что не принадлежит роликам в работе.
+// Каждая весит сотни мегабайт, и без уборки диск кончается за сутки.
+const sweepEngineDirs = async () => {
+	const root = path.join(config.storage.root, 'engine');
+	let dirs = [];
+	try {
+		dirs = await fs.readdir(root);
+	} catch {
+		return 0;
+	}
+
+	const busy = await many(
+		"SELECT video_id FROM jobs WHERE status IN ('queued','running')"
+	);
+	const keep = new Set(busy.map((row) => String(row.video_id)));
+
+	let removed = 0;
+	for (const name of dirs) {
+		if (keep.has(name)) continue;
+		await fs.rm(path.join(root, name), {recursive: true, force: true}).catch(() => {});
+		removed++;
+	}
+	return removed;
+};
+
 export const sweepStorage = async () => {
 	const keepSource = Math.max(0, config.storage.sourceKeepDays);
+	const engineDirs = await sweepEngineDirs();
 
 	// Исходники готовых роликов: окно правок закрылось.
 	// Правки ссылаются на тот же файл, поэтому берём только те,
@@ -304,12 +336,13 @@ export const sweepStorage = async () => {
 	);
 	for (const video of outputs) await dropOutput(video);
 
-	if (sources.length || outputs.length) {
+	if (sources.length || outputs.length || engineDirs) {
 		console.log(
-			`  уборка: исходников ${sources.length}, просроченных роликов ${outputs.length}`
+			`  уборка: исходников ${sources.length}, просроченных роликов ${outputs.length},` +
+			` рабочих папок ${engineDirs}`
 		);
 	}
-	return {sources: sources.length, outputs: outputs.length};
+	return {sources: sources.length, outputs: outputs.length, engineDirs};
 };
 
 export const startSweeper = () => {
@@ -321,7 +354,8 @@ export const startSweeper = () => {
 
 	const run = () => { sweepStorage().catch((e) => console.error('  уборка:', e.message)); };
 	const timer = setInterval(run, everyMs);
-	// Первый проход не сразу: на старте важнее поднять очередь.
-	setTimeout(run, 60_000).unref?.();
+	// Первый проход почти сразу: после перезапуска на диске могли остаться
+	// рабочие папки от прерванных монтажей, и места может не быть уже сейчас.
+	setTimeout(run, 5_000).unref?.();
 	return () => clearInterval(timer);
 };
