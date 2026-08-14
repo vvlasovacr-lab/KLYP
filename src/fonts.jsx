@@ -8,6 +8,13 @@ const face = (family, file) => `
 	font-display: swap;
 }`;
 
+// Если свой шрифт почему-то не приехал, текст должен нарисоваться хоть
+// чем-то. В контейнере системных шрифтов может не быть вовсе, поэтому
+// подпираем стандартными именами — их подставит fontconfig.
+const FALLBACK = `
+* { font-synthesis: weight style; }
+body { font-family: 'Montserrat', 'DejaVu Sans', 'Liberation Sans', sans-serif; }`;
+
 export const Fonts = () => (
 	<style>
 		{[
@@ -16,6 +23,6 @@ export const Fonts = () => (
 			face('Unbounded', 'Unbounded.ttf'),
 			face('GolosText', 'GolosText.ttf'),
 			face('Manrope', 'Manrope.ttf'),
-		].join('\n')}
+		].join('\n') + FALLBACK}
 	</style>
 );
