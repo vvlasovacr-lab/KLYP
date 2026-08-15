@@ -303,6 +303,64 @@ const sweepEngineDirs = async () => {
 	return removed;
 };
 
+// Сколько места осталось на томе. Node показывает диск всей машины,
+// а нам важен именно смонтированный том: он в разы меньше и кончается
+// первым.
+const freeSpace = async () => {
+	try {
+		const {bavail, bsize, blocks} = await fs.statfs(config.storage.root);
+		return {free: bavail * bsize, total: blocks * bsize};
+	} catch {
+		return null;
+	}
+};
+
+// Аварийная уборка. Когда на томе почти нет места, ждать срока хранения
+// поздно: следующий заказ упадёт ещё на копировании исходника. Сносим
+// самое старое и самое тяжёлое, пока не освободится запас.
+//
+// Порядок не случаен: сперва исходники — они весят больше всего и нужны
+// только для правок. Готовые ролики трогаем в последнюю очередь: за них
+// клиент заплатил.
+const freeUpSpace = async () => {
+	const space = await freeSpace();
+	if (!space) return 0;
+
+	const want = Math.max(config.storage.minFreeBytes, space.total * 0.15);
+	if (space.free >= want) return 0;
+
+	console.warn(
+		`  на томе осталось ${(space.free / 1073741824).toFixed(1)} ГБ из ` +
+		`${(space.total / 1073741824).toFixed(1)} — освобождаю место`
+	);
+
+	let dropped = 0;
+
+	for (const [what, rows] of [
+		['исходник', await many(
+			`SELECT * FROM videos
+			 WHERE source_path IS NOT NULL AND source_deleted_at IS NULL
+			   AND status IN ('ready','failed','expired')
+			 ORDER BY updated_at ASC LIMIT 100`
+		)],
+		['ролик', await many(
+			`SELECT * FROM videos
+			 WHERE status = 'ready' AND output_path IS NOT NULL
+			   AND output_deleted_at IS NULL
+			 ORDER BY updated_at ASC LIMIT 100`
+		)],
+	]) {
+		for (const video of rows) {
+			const now = await freeSpace();
+			if (!now || now.free >= want) return dropped;
+			await (what === 'исходник' ? dropSource(video) : dropOutput(video));
+			dropped++;
+		}
+	}
+
+	return dropped;
+};
+
 export const sweepStorage = async () => {
 	const keepSource = Math.max(0, config.storage.sourceKeepDays);
 	const engineDirs = await sweepEngineDirs();
@@ -336,13 +394,17 @@ export const sweepStorage = async () => {
 	);
 	for (const video of outputs) await dropOutput(video);
 
-	if (sources.length || outputs.length || engineDirs) {
+	// Срок хранения — это про порядок, а не про выживание. Если места
+	// нет прямо сейчас, сносим самое старое, не дожидаясь срока.
+	const forced = await freeUpSpace();
+
+	if (sources.length || outputs.length || engineDirs || forced) {
 		console.log(
 			`  уборка: исходников ${sources.length}, просроченных роликов ${outputs.length},` +
-			` рабочих папок ${engineDirs}`
+			` рабочих папок ${engineDirs}` + (forced ? `, аварийно ${forced}` : '')
 		);
 	}
-	return {sources: sources.length, outputs: outputs.length, engineDirs};
+	return {sources: sources.length, outputs: outputs.length, engineDirs, forced};
 };
 
 export const startSweeper = () => {

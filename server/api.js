@@ -135,6 +135,16 @@ export const buildApi = async ({notify}) => {
 				memoryGb: gb(os.totalmem()),
 				freeGb: gb(os.freemem()),
 			},
+			// Место на смонтированном томе, а не на диске всей машины:
+			// том в разы меньше и кончается первым — на нём лежат
+			// исходники по сотне мегабайт каждый.
+			disk: await fsp
+				.statfs(config.storage.root)
+				.then(({bavail, bsize, blocks}) => ({
+					freeGb: gb(bavail * bsize),
+					totalGb: gb(blocks * bsize),
+				}))
+				.catch(() => null),
 		};
 	});
 

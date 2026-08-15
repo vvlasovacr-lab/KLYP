@@ -137,6 +137,10 @@ export const config = {
 		outputKeepDays: Number(opt('OUTPUT_KEEP_DAYS', 30)),
 		// Как часто уборщик проходит по диску.
 		sweepMinutes: Number(opt('STORAGE_SWEEP_MIN', 60)),
+		// Сколько места держать свободным. Ниже этого порога уборщик
+		// перестаёт ждать сроков хранения и сносит самое старое: том
+		// на сервере невелик, а один исходник весит под сотню мегабайт.
+		minFreeBytes: Number(opt('STORAGE_MIN_FREE_MB', 1500)) * 1048576,
 	},
 
 	render: {
