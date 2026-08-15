@@ -326,7 +326,10 @@ const freeUpSpace = async () => {
 	const space = await freeSpace();
 	if (!space) return 0;
 
-	const want = Math.max(config.storage.minFreeBytes, space.total * 0.15);
+	// Запас не может быть больше самого тома. На маленьком томе полтора
+	// гигабайта свободными не удержать никогда — уборщик стирал бы всё
+	// подряд, включая оплаченные ролики, и никогда не останавливался.
+	const want = Math.min(config.storage.minFreeBytes, space.total * 0.25);
 	if (space.free >= want) return 0;
 
 	console.warn(
