@@ -208,10 +208,72 @@ const toCuts = ({engine, accents, broll, duration, gap}) => {
 // ── титульная плашка ──────────────────────────────────────────
 // Первые секунды — заголовок ролика. Длинные слова идут крупно,
 // короткие уходят на бейджи: так строка не расползается и держит ритм.
+// Правка расшифровки. Машина слышит звук, но не знает, о чём разговор:
+// «ООшка» превращается в «уошку», «НДС» — в «эндээс». Модель видит смысл
+// и возвращает такие слова; здесь замена применяется к самим репликам,
+// чтобы она попала и в субтитры, и в подсветку.
+const applyFixes = (chunks, fixes) => {
+	if (!fixes?.length) return chunks;
+
+	let done = 0;
+
+	for (const chunk of chunks) {
+		for (const word of chunk.words) {
+			const fix = fixes.find(
+				(f) => Math.abs(Number(f.at) - word.start) < 0.6 && bare(f.was) === bare(word.text)
+			);
+			if (!fix?.now) continue;
+
+			// Знаки в конце слова принадлежат речи, а не ошибке распознавания:
+			// точку и запятую сохраняем на месте.
+			const tail = word.text.match(/[.,!?…»)]+$/)?.[0] ?? '';
+			word.text = String(fix.now).replace(/[.,!?…»)]+$/, '') + tail;
+			done++;
+		}
+	}
+
+	if (done) console.log(`  правок расшифровки: ${done}`);
+	return chunks;
+};
+
+// Пока висит плашка, субтитров нет: она их заменяет. Значит и уйти она
+// должна ровно тогда, когда договорено последнее её слово — иначе слово
+// исчезает с плашкой и тут же выезжает субтитром, будто его написали
+// дважды.
+const titleEnd = (chunks, text) => {
+	const wanted = String(text).split(/\s+/).map(bare).filter(Boolean);
+	if (!wanted.length) return null;
+
+	const flat = chunks.flatMap((chunk) => chunk.words);
+	const set = new Set(wanted);
+	let last = null;
+	let missed = 0;
+
+	// Заголовок пересказывает начало речи, и слово в слово совпадает не
+	// всегда: «100 тысяч» вполне может стать «100 000». Поэтому идём по
+	// расшифровке и запоминаем последнее совпадение, а не требуем, чтобы
+	// сошлись все слова подряд. Три промаха кряду — значит заголовок
+	// кончился и дальше идёт обычная речь.
+	for (const word of flat) {
+		const clean = bare(word.text);
+		if (!clean) continue;
+
+		if (set.has(clean) || [...set].some((w) => clean.startsWith(w) || w.startsWith(clean))) {
+			last = word;
+			missed = 0;
+		} else if (last && ++missed >= 3) {
+			break;
+		}
+	}
+
+	// Дольше шести секунд плашка перекрывает уже сам ролик.
+	return last ? Math.min(6, last.end) : null;
+};
+
 // Модель уже разбила заголовок на строки — по смыслу, а не по счёту
 // символов. Своё деление здесь только навредило бы: оно нарезает ровными
 // кусками и рвёт словосочетания.
-const titleFromModel = (chunks, lines) => {
+const titleFromModel = (chunks, lines, until) => {
 	const DX = [0, 78, -10, -72];
 	const clean = lines
 		.map((line) => String(line).trim())
@@ -220,7 +282,15 @@ const titleFromModel = (chunks, lines) => {
 
 	if (!clean.length) return null;
 
-	const end = Math.min(3.5, chunks[Math.min(1, chunks.length - 1)]?.end ?? 3.2);
+	// Когда плашке уходить, решает модель: она знает, какие слова в неё
+	// вошла. Её число проверяем по расшифровке — если она промахнулась
+	// мимо речи, берём то, что насчитали сами.
+	const spoken = titleEnd(chunks, clean.join(' '));
+	const asked = Number(until);
+	const end =
+		Number.isFinite(asked) && asked > 0.5 && asked <= 6 && (!spoken || Math.abs(asked - spoken) < 1.5)
+			? asked
+			: spoken ?? Math.min(3.5, chunks[Math.min(1, chunks.length - 1)]?.end ?? 3.2);
 
 	return {
 		in: 0.15,
@@ -313,9 +383,10 @@ const toTitle = (chunks, hook) => {
 		}
 	}
 
-	// Плашка живёт, пока звучит первая фраза, но не дольше трёх с половиной секунд:
-	// дальше она перекрывала бы обычные титры.
-	const end = Math.min(3.5, chunks[Math.min(1, chunks.length - 1)]?.end ?? 3.2);
+	// Плашка держится, пока не договорено последнее её слово: иначе оно
+	// исчезнет вместе с ней и тут же появится субтитром.
+	const spoken = titleEnd(chunks, lines.map((l) => l.pieces[0].text).join(' '));
+	const end = spoken ?? Math.min(3.5, chunks[Math.min(1, chunks.length - 1)]?.end ?? 3.2);
 
 	return {in: 0.15, out: Number(end.toFixed(2)), lines: lines.slice(0, 4)};
 };
@@ -490,7 +561,9 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	const duration =
 		Number(engine.output?.duration) || Number(engine.source?.duration) || 0;
 
-	const chunks = toChunks(engine.scenes ?? []);
+	// Правки расшифровки применяются первыми: дальше и заголовок,
+	// и подсветка берут уже исправленный текст.
+	const chunks = applyFixes(toChunks(engine.scenes ?? []), director?.fixes);
 
 	// Жанр ролика модель определяет по содержанию: разоблачение это,
 	// разбор или спокойный разговор. От него зависит плотность эффектов.
@@ -531,7 +604,7 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	if (!broll.length) broll = toBroll(engine, chunks, {duration});
 
 	let title = fromModel.title?.lines?.length
-		? titleFromModel(chunks, fromModel.title.lines)
+		? titleFromModel(chunks, fromModel.title.lines, fromModel.title.until)
 		: null;
 	if (!title) title = toTitle(chunks, engine.speechEdit?.hook);
 
