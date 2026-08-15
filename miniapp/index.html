@@ -481,7 +481,9 @@ h1, h2, h3, h4, .display {
   color: var(--ink);
   border-radius: 3px;
   padding: 13px 16px;
-  transform: translateY(160%);
+  /* Прячется ниже собственной высоты И отступа снизу: одного «сто
+     шестьдесят процентов» не хватало, и полоса выглядывала над доком. */
+  transform: translateY(calc(100% + 110px));
   transition: transform .22s cubic-bezier(.2,.8,.2,1);
 }
 .toast.up { transform: translateY(0); }
