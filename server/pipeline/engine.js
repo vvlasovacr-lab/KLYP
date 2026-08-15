@@ -14,6 +14,7 @@ import path from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {config, hasSpeech} from './../config.js';
+import {direct} from './director.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ENGINE = path.join(ROOT, 'engine');
@@ -261,7 +262,7 @@ const makeProxy = ({source, target, preview}) =>
 // Remotion читает медиа только из public и при сборке копирует эту папку
 // в свой бандл, поэтому исходник кладём туда настоящей копией и убираем
 // сразу после.
-const renderOurs = async ({video, source, montage, dir, onProgress}) => {
+const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) => {
 	const uploads = path.join(ROOT, 'public', 'uploads');
 	await fs.mkdir(uploads, {recursive: true});
 
@@ -276,9 +277,28 @@ const renderOurs = async ({video, source, montage, dir, onProgress}) => {
 	// План движка переводим в наш формат: сцены становятся репликами,
 	// помеченные слова — акцентами, а речевой монтаж — нарезкой видео.
 	const {fromEngine} = await import('../../src/fromEngine.js');
+
+	// Что подсветить, куда поставить врезку и каким заголовком открыть —
+	// решает модель: она читает расшифровку целиком и понимает, о чём речь.
+	// Без ключа или при сбое возвращается пусто, и разметка собирается
+	// по правилам, как раньше.
+	onStage?.('Придумываю монтаж', 44);
+	const rough = fromEngine(montage, {template: video.template || 'expose'});
+	const director = await direct({chunks: rough.chunks, duration: rough.duration});
+
+	if (director) {
+		console.log(
+			`  режиссёр: ${director.accents?.length ?? 0} акцентов,` +
+			` ${director.broll?.length ?? 0} врезок, жанр ${director.template}` +
+			` · ${(director.ms / 1000).toFixed(1)}с` +
+			` · ${director.usage.in}+${director.usage.out} токенов`
+		);
+	}
+
 	const {chunks, plan, speech, duration} = fromEngine(montage, {
 		template: video.template || 'expose',
 		font: video.font || null,
+		director,
 	});
 
 	await fs.writeFile(
@@ -469,7 +489,7 @@ export const runEngine = async ({video, onProgress, onStage}) => {
 	// Рендерим сами: движок сказал, что показывать и когда, наши компоненты
 	// решают, как это выглядит.
 	onStage?.('Рендер', 48);
-	const outFile = await renderOurs({video, source, montage, dir, onProgress});
+	const outFile = await renderOurs({video, source, montage, dir, onProgress, onStage});
 
 	// Оценку качества и план речевого монтажа движок считает сам —
 	// забираем их как есть, они лежат в папке задачи.

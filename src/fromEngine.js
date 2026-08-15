@@ -128,6 +128,50 @@ const toAccents = (chunks, {gap = 3.4, duration = 0} = {}) => {
 		.map((t) => [t.start, t.end, t.text, t.tone]);
 };
 
+// Модель называет слово и секунду, но её секунда — приблизительная:
+// она читает расшифровку, а не звук. Привязываемся к настоящему слову,
+// иначе подсветка встанет мимо того, что произносится.
+const snap = (flat, {at, text}) => {
+	const wanted = bare(text);
+	let best = null;
+	let bestGap = Infinity;
+
+	for (const word of flat) {
+		const gap = Math.abs(word.start - at);
+		if (gap > 2.5) continue;
+		// совпадение по тексту важнее близости по времени: одно и то же
+		// слово может встретиться в ролике дважды
+		const same = bare(word.text) === wanted || bare(word.text).startsWith(wanted);
+		const score = gap - (same ? 3 : 0);
+		if (score < bestGap) {
+			bestGap = score;
+			best = word;
+		}
+	}
+	return best;
+};
+
+const accentsFromModel = (chunks, marks, gap) => {
+	const flat = chunks.flatMap((chunk) => chunk.words);
+	const taken = [];
+
+	for (const mark of marks) {
+		const word = snap(flat, mark);
+		if (!word) continue;
+		// подряд идущие подсветки сливаются в кашу
+		if (taken.some((t) => Math.abs(t[0] - word.start) < Math.min(gap, 2))) continue;
+
+		taken.push([
+			Number(word.start.toFixed(2)),
+			Number(Math.max(word.end, word.start + 0.15).toFixed(2)),
+			word.text,
+			mark.tone === 'danger' ? 'danger' : 'gold',
+		]);
+	}
+
+	return taken.sort((a, b) => a[0] - b[0]);
+};
+
 // ── склейки ───────────────────────────────────────────────────
 // Движок ставит всего пару движений камеры за ролик — под наш референс
 // этого мало. Берём его метки как обязательные и достраиваем ритм:
@@ -164,6 +208,31 @@ const toCuts = ({engine, accents, broll, duration, gap}) => {
 // ── титульная плашка ──────────────────────────────────────────
 // Первые секунды — заголовок ролика. Длинные слова идут крупно,
 // короткие уходят на бейджи: так строка не расползается и держит ритм.
+// Модель уже разбила заголовок на строки — по смыслу, а не по счёту
+// символов. Своё деление здесь только навредило бы: оно нарезает ровными
+// кусками и рвёт словосочетания.
+const titleFromModel = (chunks, lines) => {
+	const DX = [0, 78, -10, -72];
+	const clean = lines
+		.map((line) => String(line).trim())
+		.filter(Boolean)
+		.slice(0, 4);
+
+	if (!clean.length) return null;
+
+	const end = Math.min(3.5, chunks[Math.min(1, chunks.length - 1)]?.end ?? 3.2);
+
+	return {
+		in: 0.15,
+		out: Number(end.toFixed(2)),
+		// чередование крупной строки и бейджа — как на референсе
+		lines: clean.map((text, i) => ({
+			dx: DX[i] ?? 0,
+			pieces: [{kind: i % 2 === 0 ? 'big' : 'badge', text}],
+		})),
+	};
+};
+
 const toTitle = (chunks, hook) => {
 	const source = String(hook?.text || chunks[0]?.words.map((w) => w.text).join(' ') || '');
 	const all = source.replace(/[?!.]+$/, '').split(/\s+/).filter(Boolean);
@@ -325,6 +394,34 @@ const matchClip = (chunk) => {
 	return null;
 };
 
+// Врезки, выбранные моделью: она читает фразу целиком и понимает, о чём
+// речь, а словарь ключей ловит только совпадение по началу слова.
+const brollFromModel = (marks, {gap = 7, length = 2.6, duration = 0} = {}) => {
+	const known = new Set(LIBRARY.map((item) => item.file));
+	const shots = [];
+	const used = new Set();
+	let lastEnd = -Infinity;
+
+	for (const mark of [...marks].sort((a, b) => a.at - b.at)) {
+		const file = String(mark.file ?? '').replace(/^.*\//, '');
+		// модель могла выдумать имя файла — такой клип просто пропускаем
+		if (!known.has(file) || used.has(file)) continue;
+
+		const from = Number(mark.at);
+		if (!Number.isFinite(from) || from < 3 || from > duration - 4) continue;
+		if (from - lastEnd < gap) continue;
+
+		const to = Number(Math.min(from + length, duration - 1).toFixed(2));
+		if (to - from < 1.2) continue;
+
+		shots.push({from: Number(from.toFixed(2)), to, file, startFrom: 0, zoom: 1});
+		used.add(file);
+		lastEnd = to;
+	}
+
+	return shots;
+};
+
 const toBroll = (engine, chunks, {gap = 7, length = 2.6, duration = 0} = {}) => {
 	// Если движок подобрал свои клипы — берём их, он смотрит на смысл фразы
 	// целиком. Сейчас его библиотека приезжает пустыми файлами из Git LFS,
@@ -388,18 +485,22 @@ const toSpeech = (engine) => {
 };
 
 // ── сборка ────────────────────────────────────────────────────
-export const fromEngine = (montage, {template = 'expose', font = null} = {}) => {
+export const fromEngine = (montage, {template = 'expose', font = null, director = null} = {}) => {
 	const engine = montage && typeof montage === 'object' ? montage : {};
 	const duration =
 		Number(engine.output?.duration) || Number(engine.source?.duration) || 0;
 
 	const chunks = toChunks(engine.scenes ?? []);
 
+	// Жанр ролика модель определяет по содержанию: разоблачение это,
+	// разбор или спокойный разговор. От него зависит плотность эффектов.
+	const kind = director?.template ?? template;
+
 	// Оформление вычисляется из самого ролика: другой исходник почти
 	// наверняка получит другую палитру и раскладку, а один и тот же —
 	// всегда одну и ту же.
 	const look = pickLook(
-		template,
+		kind,
 		fingerprint({
 			duration,
 			words: chunks.reduce((sum, chunk) => sum + chunk.words.length, 0),
@@ -414,8 +515,26 @@ export const fromEngine = (montage, {template = 'expose', font = null} = {}) => 
 		look.font = {...look.font, key: font, name: font, base: font, accent: font};
 	}
 
-	const accents = toAccents(chunks, {gap: look.accentGap, duration});
-	const broll = toBroll(engine, chunks, {duration});
+	// Везде один порядок: сначала решение модели, потом правила.
+	// Пустой ответ модели по любому из пунктов — не повод остаться
+	// без разметки: недостающее достраивается по-старому.
+	const fromModel = director ?? {};
+
+	let accents = fromModel.accents?.length
+		? accentsFromModel(chunks, fromModel.accents, look.accentGap)
+		: [];
+	if (!accents.length) accents = toAccents(chunks, {gap: look.accentGap, duration});
+
+	let broll = fromModel.broll?.length
+		? brollFromModel(fromModel.broll, {duration})
+		: [];
+	if (!broll.length) broll = toBroll(engine, chunks, {duration});
+
+	let title = fromModel.title?.lines?.length
+		? titleFromModel(chunks, fromModel.title.lines)
+		: null;
+	if (!title) title = toTitle(chunks, engine.speechEdit?.hook);
+
 	const cutGap = look.cutGap;
 
 	return {
@@ -427,7 +546,7 @@ export const fromEngine = (montage, {template = 'expose', font = null} = {}) => 
 			broll,
 			shouts: toShouts(chunks, duration),
 			cuts: toCuts({engine, accents, broll, duration, gap: cutGap}),
-			title: toTitle(chunks, engine.speechEdit?.hook),
+			title,
 			// палитра, раскладка и шрифт этого ролика
 			look,
 			face: engine.face ?? null,
