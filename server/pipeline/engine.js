@@ -304,6 +304,14 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 	// Без ключа или при сбое возвращается пусто, и разметка собирается
 	// по правилам, как раньше.
 	onStage?.('Придумываю монтаж', 44);
+	// Свои врезки клиента переносим туда же, откуда Remotion берёт видео.
+	const ownClips = [];
+	for (const [i, file] of (video.clips ?? []).entries()) {
+		const name = `clip-${video.id}-${i}${path.extname(file) || '.mp4'}`;
+		const ok = await fs.copyFile(file, path.join(uploads, name)).then(() => true).catch(() => false);
+		if (ok) ownClips.push(`uploads/${name}`);
+	}
+
 	const rough = fromEngine(montage, {template: video.template || 'expose'});
 
 	// Если это правка — показываем модели прежнюю разметку и замечания
@@ -335,19 +343,8 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		ownClips,
 	});
 
-	if (ownClips.length || music) {
-		console.log(
-			`  ролик ${video.id} · свои материалы: врезок ${ownClips.length}` +
-			(music ? ', музыка есть' : '')
-		);
-	}
-
-	// Свои врезки клиента переносим туда же, откуда Remotion берёт видео.
-	const ownClips = [];
-	for (const [i, file] of (video.clips ?? []).entries()) {
-		const name = `clip-${video.id}-${i}${path.extname(file) || '.mp4'}`;
-		const ok = await fs.copyFile(file, path.join(uploads, name)).then(() => true).catch(() => false);
-		if (ok) ownClips.push(`uploads/${name}`);
+	if (ownClips.length) {
+		console.log(`  ролик ${video.id} · своих врезок ${ownClips.length}`);
 	}
 
 	// Свои материалы клиента — музыка и врезки — кладутся туда же, откуда
