@@ -332,7 +332,32 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		template: video.template || 'expose',
 		font: video.font || null,
 		director,
+		ownClips,
 	});
+
+	if (ownClips.length || music) {
+		console.log(
+			`  ролик ${video.id} · свои материалы: врезок ${ownClips.length}` +
+			(music ? ', музыка есть' : '')
+		);
+	}
+
+	// Свои врезки клиента переносим туда же, откуда Remotion берёт видео.
+	const ownClips = [];
+	for (const [i, file] of (video.clips ?? []).entries()) {
+		const name = `clip-${video.id}-${i}${path.extname(file) || '.mp4'}`;
+		const ok = await fs.copyFile(file, path.join(uploads, name)).then(() => true).catch(() => false);
+		if (ok) ownClips.push(`uploads/${name}`);
+	}
+
+	// Свои материалы клиента — музыка и врезки — кладутся туда же, откуда
+	// Remotion берёт видео: он умеет читать только из своей папки.
+	let music = null;
+	if (video.music) {
+		const name = `music-${video.id}${path.extname(video.music) || '.mp3'}`;
+		await fs.copyFile(video.music, path.join(uploads, name)).catch(() => {});
+		music = {file: `uploads/${name}`, volume: 0.16};
+	}
 
 	await fs.writeFile(
 		propsFile,
@@ -340,6 +365,7 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 			chunks,
 			plan,
 			speech,
+			music,
 			source: `uploads/${path.basename(staged)}`,
 			fromSeconds: 0,
 			durationInSeconds: duration,

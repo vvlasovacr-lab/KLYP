@@ -450,6 +450,9 @@ export const buildApi = async ({notify}) => {
 
 		const fields = {};
 		let saved = null;
+		const parts = [];
+		let ownClips = [];
+		let ownMusic = null;
 
 		// Файл, собранный из кусков: тела в этом запросе нет, пришёл только
 		// ключ загрузки. Основной путь — клиент шлёт файл именно так.
@@ -457,25 +460,64 @@ export const buildApi = async ({notify}) => {
 			const already = await byToken(user.id, token);
 			if (already) return {ok: true, id: Number(already.id), duplicate: true};
 
-			const id = cleanId(req.body?.uploadId);
-			if (!id) return reply.code(400).send({error: 'Не приложен файл видео'});
-
-			const {body, meta} = uploadPaths(id);
-			const info = await fsp.readFile(meta, 'utf8').then(JSON.parse).catch(() => null);
-			if (!info) return reply.code(404).send({error: 'Загрузка не найдена — начни заново'});
-			if (Number(info.user) !== Number(user.id)) {
-				return reply.code(403).send({error: 'Чужая загрузка'});
-			}
+			// Клиент мог выбрать несколько дублей — они приезжают отдельными
+			// загрузками, а склеиваются перед монтажом.
+			const ids = (Array.isArray(req.body?.uploadIds) ? req.body.uploadIds : [req.body?.uploadId])
+				.map(cleanId)
+				.filter(Boolean)
+				.slice(0, 10);
+			if (!ids.length) return reply.code(400).send({error: 'Не приложен файл видео'});
 
 			const dir = path.join(config.storage.root, 'src', String(user.id));
 			await fsp.mkdir(dir, {recursive: true});
-			const ext = path.extname(info.name || '.mp4').slice(0, 8) || '.mp4';
-			saved = path.join(dir, `${Date.now()}${ext}`);
-			await fsp.rename(body, saved).catch(async () => {
-				await fsp.copyFile(body, saved);
-				await fsp.unlink(body).catch(() => {});
-			});
-			await fsp.unlink(meta).catch(() => {});
+
+			for (const id of ids) {
+				const {body, meta} = uploadPaths(id);
+				const info = await fsp.readFile(meta, 'utf8').then(JSON.parse).catch(() => null);
+				if (!info) return reply.code(404).send({error: 'Загрузка не найдена — начни заново'});
+				if (Number(info.user) !== Number(user.id)) {
+					return reply.code(403).send({error: 'Чужая загрузка'});
+				}
+
+				const ext = path.extname(info.name || '.mp4').slice(0, 8) || '.mp4';
+				const file = path.join(dir, `${Date.now()}-${parts.length}${ext}`);
+				await fsp.rename(body, file).catch(async () => {
+					await fsp.copyFile(body, file);
+					await fsp.unlink(body).catch(() => {});
+				});
+				await fsp.unlink(meta).catch(() => {});
+				parts.push(file);
+			}
+
+			// Первый файл идёт как основной: если склейка почему-то не выйдет,
+			// ролик всё равно соберётся — из первого дубля.
+			saved = parts[0];
+
+			// Свои врезки и своя музыка приезжают так же, кусками, но живут
+			// отдельно от исходников: их не склеивают и не режут.
+			const take = async (list, cap) => {
+				const out = [];
+				for (const raw of (Array.isArray(list) ? list : []).slice(0, cap)) {
+					const id = cleanId(raw);
+					if (!id) continue;
+					const {body, meta} = uploadPaths(id);
+					const info = await fsp.readFile(meta, 'utf8').then(JSON.parse).catch(() => null);
+					if (!info || Number(info.user) !== Number(user.id)) continue;
+
+					const ext = path.extname(info.name || '').slice(0, 8) || '.mp4';
+					const file = path.join(dir, `свой-${Date.now()}-${out.length}${ext}`);
+					await fsp.rename(body, file).catch(async () => {
+						await fsp.copyFile(body, file);
+						await fsp.unlink(body).catch(() => {});
+					});
+					await fsp.unlink(meta).catch(() => {});
+					out.push(file);
+				}
+				return out;
+			};
+
+			ownClips = await take(req.body?.clipIds, 8);
+			ownMusic = (await take(req.body?.musicId ? [req.body.musicId] : [], 1))[0] ?? null;
 
 			for (const key of ['title', 'template', 'brief', 'reference', 'preview', 'font']) {
 				if (req.body?.[key] != null) fields[key] = String(req.body[key]);
@@ -577,8 +619,9 @@ export const buildApi = async ({notify}) => {
 
 				const {rows} = await client.query(
 					`INSERT INTO videos (user_id, title, status, template, brief, reference_url,
-					                     source_path, preview_only, cost, client_token, duration_sec, font)
-					 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+					                     source_path, preview_only, cost, client_token, duration_sec, font,
+					                     sources, clips, music)
+					 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
 					[
 						user.id,
 						(fields.title || 'Новый ролик').slice(0, 120),
@@ -591,6 +634,11 @@ export const buildApi = async ({notify}) => {
 						token2,
 						Number(duration.toFixed(2)),
 						(fields.font || '').slice(0, 40) || null,
+						// Список дублей нужен, только когда их больше одного:
+						// иначе он повторял бы source_path.
+						parts.length > 1 ? JSON.stringify(parts) : null,
+						ownClips.length ? JSON.stringify(ownClips) : null,
+						ownMusic,
 					]
 				);
 				const video = rows[0];

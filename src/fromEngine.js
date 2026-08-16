@@ -556,7 +556,7 @@ const toSpeech = (engine) => {
 };
 
 // ── сборка ────────────────────────────────────────────────────
-export const fromEngine = (montage, {template = 'expose', font = null, director = null} = {}) => {
+export const fromEngine = (montage, {template = 'expose', font = null, director = null, ownClips = []} = {}) => {
 	const engine = montage && typeof montage === 'object' ? montage : {};
 	const duration =
 		Number(engine.output?.duration) || Number(engine.source?.duration) || 0;
@@ -602,6 +602,15 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 		? brollFromModel(fromModel.broll, {duration})
 		: [];
 	if (!broll.length) broll = toBroll(engine, chunks, {duration});
+
+	// Клиент принёс свои врезки — ставим их вместо наших, по порядку и в
+	// те же моменты. Что показать, он решил сам; куда поставить — знает
+	// режиссёр, потому что видит, где в речи для этого место.
+	if (ownClips.length) {
+		broll = broll.map((shot, i) =>
+			i < ownClips.length ? {...shot, file: ownClips[i], own: true} : shot
+		);
+	}
 
 	let title = fromModel.title?.lines?.length
 		? titleFromModel(chunks, fromModel.title.lines, fromModel.title.until)

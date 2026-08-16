@@ -69,6 +69,47 @@ const sizeOf = async (file) => {
 	}
 };
 
+// ── склейка дублей ────────────────────────────────────────────
+// Клиент снял подводку, основную часть и концовку разными файлами, а
+// ролик хочет один. Склеиваем их встык до монтажа — дальше по трубе
+// идёт привычный единственный исходник.
+//
+// Пересжатие обязательно: дубли сняты в разное время, у них разное
+// разрешение, частота кадров и звук. Без приведения к общему виду склейка
+// либо рассыпается, либо теряет звук на втором куске.
+const glue = (parts, target) =>
+	new Promise((resolve, reject) => {
+		const args = ['-v', 'error', '-y'];
+		for (const file of parts) args.push('-i', file);
+
+		// Каждый кусок вписываем в общий кадр 1080×1920, пустое поле —
+		// чёрным. Так горизонтальный дубль встанет рядом с вертикальным
+		// и никого не растянет.
+		const steps = parts
+			.map((_, i) =>
+				`[${i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,` +
+				`pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}];` +
+				`[${i}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`
+			)
+			.join(';');
+
+		const chain = parts.map((_, i) => `[v${i}][a${i}]`).join('');
+
+		args.push(
+			'-filter_complex', `${steps};${chain}concat=n=${parts.length}:v=1:a=1[v][a]`,
+			'-map', '[v]', '-map', '[a]',
+			'-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+			'-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k',
+			'-movflags', '+faststart', target
+		);
+
+		const ff = spawn('ffmpeg', args);
+		let tail = '';
+		ff.stderr.on('data', (b) => { tail = (tail + String(b)).slice(-400); });
+		ff.on('close', (code) => (code === 0 ? resolve(target) : reject(new Error(tail || `ffmpeg ${code}`))));
+		ff.on('error', reject);
+	});
+
 let notify = async () => {}; // подменяется ботом при старте
 export const setNotifier = (fn) => { notify = fn; };
 
@@ -125,6 +166,28 @@ const process1 = async (job) => {
 
 	if (marks.length) {
 		console.log(`  ролик ${video.id} · правка ${video.parent_id} · меток ${marks.length}`);
+	}
+
+	// Несколько дублей — сначала в один файл, потом всё как обычно.
+	const parts = Array.isArray(video.sources) ? video.sources : null;
+	if (parts && parts.length > 1) {
+		await setStage(job.id, 'Склеиваю дубли', 3);
+		const glued = path.join(
+			path.dirname(video.source_path), `${path.parse(video.source_path).name}-склейка.mp4`
+		);
+
+		try {
+			const at = Date.now();
+			await glue(parts, glued);
+			video.source_path = glued;
+			console.log(
+				`  ролик ${video.id} · склеено дублей ${parts.length} за ${sec(Date.now() - at)}с`
+			);
+		} catch (err) {
+			// Склейка не вышла — монтируем первый дубль, а не отказываем:
+			// клиент уже заплатил и ждёт ролик.
+			console.error(`  ролик ${video.id} · склейка не удалась: ${String(err.message).slice(0, 160)}`);
+		}
 	}
 
 	await setStage(job.id, 'Готовлю материал', 4);

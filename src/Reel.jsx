@@ -128,7 +128,7 @@ const Speaker = ({source, speech, fromSeconds, style}) => {
 	});
 };
 
-export const Reel = ({chunks, plan, speech, source, fromSeconds = 0}) => {
+export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 0}) => {
 	const frame = useCurrentFrame();
 	const {fps, durationInFrames} = useVideoConfig();
 
@@ -208,7 +208,10 @@ export const Reel = ({chunks, plan, speech, source, fromSeconds = 0}) => {
 				>
 					<AbsoluteFill style={{overflow: 'hidden', opacity: brollFade}}>
 						<OffthreadVideo
-							src={staticFile(`broll/${broll.file}`)}
+							/* Своя врезка клиента лежит рядом с исходником, наша —
+							   в библиотеке. Отличаем по метке, а не по имени файла:
+							   клиент может назвать свой клип как угодно. */
+							src={staticFile(broll.own ? broll.file : `broll/${broll.file}`)}
 							startFrom={Math.round((broll.startFrom ?? 0) * fps)}
 							style={{
 								width: '100%',
@@ -227,6 +230,12 @@ export const Reel = ({chunks, plan, speech, source, fromSeconds = 0}) => {
 
 			{flash > 0 ? (
 				<AbsoluteFill style={{backgroundColor: `rgba(${tint.rgb},${flash})`}} />
+			) : null}
+
+			{/* Своя музыка клиента: тихо, под голосом. Громче делать нельзя —
+			    речь в рилсе главное, а фон только держит темп. */}
+			{music ? (
+				<Audio src={staticFile(music.file)} volume={music.volume ?? 0.16} loop />
 			) : null}
 
 			{SFX.on
