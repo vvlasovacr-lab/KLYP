@@ -891,7 +891,11 @@ h1, h2, h3, h4, .display {
   };
 
   var rail = $('rail');
+  // Полосу шаблонов с экрана убрали: жанр определяет модель по речи.
+  // Код отрисовки оставлен на случай возврата полосы, но без неё он
+  // молчит, а не роняет весь экран обращением к пустому узлу.
   function paintTemplates(){
+    if (!rail) return;
     rail.innerHTML = '';
     META.templates.forEach(function(t, i){
       var el = document.createElement('div');
