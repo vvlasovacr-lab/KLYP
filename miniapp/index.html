@@ -733,7 +733,11 @@ h1, h2, h3, h4, .display {
           <div class="player zones" id="player">
             <video id="pv" playsinline preload="metadata"
                    style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></video>
-            <div class="zone top"></div><div class="zone bot"></div><div class="zone side"></div>
+            <div class="zone top" data-zone="шапка"></div>
+            <div class="zone bot" data-zone="никнейм, описание, музыка"></div>
+            <div class="zone icons" data-zone="кнопки"></div>
+            <div class="zone edge left"></div>
+            <div class="zone edge right"></div>
             <div class="tsec" id="tsec">00:00</div>
             <div class="cap" id="cap">Ролик не выбран</div>
           </div>
@@ -1401,6 +1405,23 @@ h1, h2, h3, h4, .display {
   }
 
   /* ═══════════ РЕДАКТОР ═══════════ */
+
+  // Рамка площадки на плеере: докуда текст ставить нельзя.
+  function paintZones(){
+    var s = META.safe;
+    if (!s || !player) return;
+    var pct = function(x){ return (x * 100) + '%'; };
+    var put = function(sel, css){
+      var el = player.querySelector(sel);
+      if (el) for (var k in css) el.style[k] = css[k];
+    };
+    put('.zone.top',   {left: 0, right: 0, top: 0, height: pct(s.top)});
+    put('.zone.bot',   {left: 0, right: 0, bottom: 0, height: pct(s.bottom)});
+    put('.zone.icons', {right: pct(s.side), top: pct(s.icons.from),
+                        width: pct(s.icons.width - s.side), bottom: pct(s.bottom)});
+    put('.zone.edge.left',  {left: 0, top: 0, bottom: 0, width: pct(s.side)});
+    put('.zone.edge.right', {right: 0, top: 0, bottom: 0, width: pct(s.side)});
+  }
 
   var track = $('track'), head = $('head'), tsec = $('tsec'), cap = $('cap');
   var addmk = $('addmk'), mnote = $('mnote'), notes = $('notes'), mkcount = $('mkcount');

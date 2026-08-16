@@ -18,6 +18,7 @@ import {
 } from './users.js';
 import {PACKAGES, findPackage} from './packages.js';
 import {TEMPLATES} from './pipeline/plan.js';
+import {SAFE} from './../src/style.js';
 import {probeDuration} from './pipeline/transcribe.js';
 import {startPayment, applyWebhook, verifyWebhook} from './lava.js';
 
@@ -764,6 +765,37 @@ export const buildApi = async ({notify}) => {
 		return {ok: true};
 	});
 
+	// Отдача файла кусками по запросу браузера.
+	//
+	// Без этого перемотка не работает вовсе: браузер просит байты с
+	// нужного места, не получает их и остаётся на первом кадре — секунды
+	// на дорожке идут, а картинка стоит.
+	const sendRange = (req, reply, file, size, type) => {
+		reply.header('Accept-Ranges', 'bytes');
+		reply.type(type);
+
+		const asked = String(req.headers.range || '');
+		const m = /^bytes=(\d*)-(\d*)$/.exec(asked);
+
+		if (!m) {
+			reply.header('Content-Length', size);
+			return reply.send(fs.createReadStream(file));
+		}
+
+		// Пустое начало означает «последние N байт» — так браузер иногда
+		// дочитывает хвост файла, где лежит оглавление.
+		let start = m[1] === '' ? size - Number(m[2] || 0) : Number(m[1]);
+		let end = m[1] === '' ? size - 1 : (m[2] === '' ? size - 1 : Number(m[2]));
+
+		start = Math.max(0, Math.min(start, size - 1));
+		end = Math.max(start, Math.min(end, size - 1));
+
+		reply.code(206);
+		reply.header('Content-Range', `bytes ${start}-${end}/${size}`);
+		reply.header('Content-Length', end - start + 1);
+		return reply.send(fs.createReadStream(file, {start, end}));
+	};
+
 	// ── отдача медиа ───────────────────────────────────────────
 	// Ссылки короткоживущие и без токена: id последовательные, поэтому
 	// проверяем владельца по initData из query.
@@ -779,12 +811,14 @@ export const buildApi = async ({notify}) => {
 		);
 		if (!video?.file) return reply.code(404).send({error: 'Файл ещё не готов'});
 
+		let size;
 		try {
-			await fsp.access(video.file);
+			({size} = await fsp.stat(video.file));
 		} catch {
 			return reply.code(404).send({error: 'Файл пропал с диска'});
 		}
-		return reply.type(type).send(fs.createReadStream(video.file));
+
+		return sendRange(req, reply, video.file, size, type);
 	};
 
 	app.get('/media/video/:id', (req, reply) =>

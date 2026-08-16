@@ -10,6 +10,7 @@
 // по нашим правилам.
 
 import {pickLook, fingerprint} from './looks.js';
+import {checkSafeArea, fitTitle} from './safety.js';
 
 // ── что считать акцентом ──────────────────────────────────────
 // Движок помечает важные слова ролью emphasis и даёт им категорию:
@@ -617,21 +618,31 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 		: null;
 	if (!title) title = toTitle(chunks, engine.speechEdit?.hook);
 
+	// Каждый монтаж прогоняется через рамку площадки: сверху шапка, справа
+	// колонка кнопок, снизу подпись, по бокам обрезаемые края. Заголовок
+	// придумывает модель, длину слов не угадать — что не влезло, укорачиваем
+	// по словам, а не обрезаем по буквам.
+	if (title) title = fitTitle(title);
+
 	const cutGap = look.cutGap;
 
-	return {
-		duration,
-		chunks,
-		speech: toSpeech(engine),
-		plan: {
-			accents,
-			broll,
-			shouts: toShouts(chunks, duration),
-			cuts: toCuts({engine, accents, broll, duration, gap: cutGap}),
-			title,
-			// палитра, раскладка и шрифт этого ролика
-			look,
-			face: engine.face ?? null,
-		},
+	const plan = {
+		accents,
+		broll,
+		shouts: toShouts(chunks, duration),
+		cuts: toCuts({engine, accents, broll, duration, gap: cutGap}),
+		title,
+		// палитра, раскладка и шрифт этого ролика
+		look,
+		face: engine.face ?? null,
 	};
+
+	// Последняя проверка уже собранного плана. Найденное не молчим:
+	// без этого нарушение всплывёт только у клиента в ленте.
+	const problems = checkSafeArea(plan);
+	if (problems.length) {
+		console.warn(`  внимание: текст выходит за рамку площадки — ${JSON.stringify(problems)}`);
+	}
+
+	return {duration, chunks, speech: toSpeech(engine), plan};
 };
