@@ -35,41 +35,58 @@ export const parseInitData = (initData) => {
 	if (!hash) return {ok: false, reason: 'нет подписи'};
 
 	params.delete('hash');
-	// signature появляется в новых версиях и в подпись не входит
-	params.delete('signature');
 
-	const check = [...params.entries()]
-		.map(([k, v]) => `${k}=${v}`)
-		.sort()
-		.join('\n');
+	// Telegram добавил поле signature — вторую подпись, для проверки
+	// третьей стороной. Входит ли оно в счёт основной подписи, в разных
+	// клиентах выходит по-разному, поэтому считаем оба порядка и
+	// принимаем совпадение с любым.
+	//
+	// Безопасности это не ослабляет: обе строки подписаны секретом бота,
+	// подделать любую из них без токена нельзя.
+	const line = (entries) => entries.map(([k, v]) => `${k}=${v}`).sort().join('\n');
+
+	const withSignature = line([...params.entries()]);
+	const withoutSignature = line([...params.entries()].filter(([k]) => k !== 'signature'));
 
 	const secret = crypto
 		.createHmac('sha256', 'WebAppData')
 		.update(config.bot.token)
 		.digest();
 
-	const mine = crypto.createHmac('sha256', secret).update(check).digest('hex');
+	const sign = (text) => crypto.createHmac('sha256', secret).update(text).digest('hex');
 
 	// Сравнение постоянного времени: обычное === утекает информацию
 	// о том, сколько символов совпало.
-	const a = Buffer.from(mine, 'hex');
-	const b = Buffer.from(hash, 'hex');
-	if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+	const same = (mine) => {
+		const a = Buffer.from(mine, 'hex');
+		const b = Buffer.from(hash, 'hex');
+		return a.length === b.length && crypto.timingSafeEqual(a, b);
+	};
+
+	const matched = same(sign(withoutSignature))
+		? 'без signature'
+		: same(sign(withSignature))
+			? 'с signature'
+			: null;
+
+	if (!matched) {
 		let who = null;
 		try { who = JSON.parse(params.get('user') || 'null')?.id ?? null; } catch {}
 
 		remember({
 			кто: who,
 			поля: [...params.keys()].sort(),
-			былаSignature: /(^|&)signature=/.test(initData),
+			былаSignature: params.has('signature'),
 			ихПодпись: String(hash).slice(0, 10),
-			нашаПодпись: mine.slice(0, 10),
+			безSignature: sign(withoutSignature).slice(0, 10),
+			сSignature: sign(withSignature).slice(0, 10),
 			ботВКлюче: String(config.bot.token).split(':')[0],
 			длинаКлюча: String(config.bot.token).length,
-			строкаПроверки: check.length,
 		});
 		return {ok: false, reason: 'подпись не сходится'};
 	}
+
+	params.delete('signature');
 
 	const authDate = Number(params.get('auth_date') || 0);
 	if (!authDate || Date.now() / 1000 - authDate > MAX_AGE_SEC) {
