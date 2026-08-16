@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -32,7 +32,7 @@ from .speech_edit import apply_speech_edit, build_speech_edit_plan, transcript_f
 from .style_profiles import get_style_profile, merge_render_style
 from .text_correction import correct_transcript
 from .transcript_normalizer import chunks_from_normalized, normalize_transcript
-from .transcription import Transcript, Transcriber
+from .transcription import Transcript, TranscriptWord, Transcriber
 from .validation import validate_montage_plan, validate_output, validate_source
 from .debug_inspector import build_director_debug, write_debug_inspector
 from .jobs import JobContext, publish_output
@@ -110,14 +110,32 @@ def _json_value(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, sort_keys=True))
 
 
+def _straighten(words: list[TranscriptWord]) -> list[TranscriptWord]:
+    """Выпрямить тайминги слов, идущих внахлёст.
+
+    Раньше нахлёст обрывал весь заказ. Слова изредка налезают друг на
+    друга: распознавание округляет границы, а на склейке нескольких
+    дублей стык даёт ещё и разрыв. Терять из-за этого готовый ролик
+    нельзя — двигаем начало слова к концу предыдущего и идём дальше.
+    """
+    fixed: list[TranscriptWord] = []
+    previous_end = -1.0
+    for word in words:
+        start = max(word.start, previous_end) if word.start < previous_end - 0.001 else word.start
+        end = word.end if word.end >= start else start + 0.01
+        fixed.append(replace(word, start=start, end=end) if (start, end) != (word.start, word.end) else word)
+        previous_end = end
+    return fixed
+
+
 def _chunks_from_transcripts(raw: Transcript, corrected: Transcript) -> list[dict[str, Any]]:
     raw_words = [word for segment in raw.segments for word in segment.words]
-    corrected_words = [word for segment in corrected.segments for word in segment.words]
+    corrected_words = _straighten(
+        [word for segment in corrected.segments for word in segment.words]
+    )
     chunks: list[dict[str, Any]] = []
     previous_end = -1.0
     for word in corrected_words:
-        if word.start < previous_end - 0.001 or word.end < word.start:
-            raise ValueError("Text correction produced non-monotonic word timestamps")
         sources = [
             source for source in raw_words
             if source.end > word.start + 0.001 and source.start < word.end - 0.001
