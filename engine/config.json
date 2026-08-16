@@ -24,12 +24,12 @@
     "remove_fillers": true,
     "filler_words": ["ээ", "эм", "ну", "короче", "как бы", "вот", "типа"],
     "filler_min_gap": 0.18,
-    "preserve_speech_rate": false,
-    "speech_compression": true,
-    "compression_speed": 1.035,
+    "preserve_speech_rate": true,
+    "speech_compression": false,
+    "compression_speed": 1.0,
     "min_compress_segment_ms": 900,
-    "max_speed": 1.06,
-    "calm_speed": 1.035,
+    "max_speed": 1.0,
+    "calm_speed": 1.0,
     "hook_window_ms": 3000
   },
   "face_tracking": {

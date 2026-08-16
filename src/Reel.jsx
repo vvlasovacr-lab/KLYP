@@ -92,6 +92,11 @@ const useCameraZoom = (time, fromSeconds, accentStarts) => {
 // потому что режется он там, где человек молчал.
 //
 // Без плана речевого монтажа играем исходник как есть.
+// Сколько кадров длится перекрытие на стыке кусков. Два кадра — около
+// семидесяти миллисекунд: щелчка уже не слышно, а начало слова ещё не
+// съедено.
+const SPLICE = 2;
+
 const Speaker = ({source, speech, fromSeconds, style}) => {
 	const {fps, durationInFrames} = useVideoConfig();
 	const file = staticFile(source || 'base.mp4');
@@ -112,14 +117,31 @@ const Speaker = ({source, speech, fromSeconds, style}) => {
 		const length = Math.max(1, Math.round((part.until - part.at) * fps));
 		if (from + length < 0 || from > durationInFrames) return null;
 
+		// Стык встык слышен щелчком: волна обрывается на полуслове и
+		// начинается с другого места. Поэтому кусок тянется на пару кадров
+		// дальше своего конца и там затихает, а следующий за это же время
+		// набирает громкость — звук переходит внахлёст, а не рубится.
+		//
+		// Картинка при этом режется ровно там, где и раньше: следующий
+		// кусок рисуется поверх, а хвост предыдущего слышно, но не видно.
+		const head = i > 0 ? SPLICE : 0;
+		const tail = i < speech.length - 1 ? SPLICE : 0;
+
+		const volume = (f) => {
+			const rise = head ? Math.min(1, (f + 1) / head) : 1;
+			const drop = tail ? Math.min(1, (length + tail - f) / tail) : 1;
+			return Math.max(0, Math.min(rise, drop));
+		};
+
 		return (
-			<Sequence key={i} from={from} durationInFrames={length} layout="none">
+			<Sequence key={i} from={from} durationInFrames={length + tail} layout="none">
 				<AbsoluteFill style={{overflow: 'hidden'}}>
 					<OffthreadVideo
 						src={file}
 						startFrom={Math.round(part.from * fps)}
-						endAt={Math.round(part.to * fps)}
+						endAt={Math.round(part.to * fps) + tail}
 						playbackRate={part.speed}
+						volume={volume}
 						style={style}
 					/>
 				</AbsoluteFill>

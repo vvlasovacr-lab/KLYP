@@ -170,6 +170,12 @@ export const config = {
 		// на сервере с этим ключом кадр искался по три секунды вместо
 		// десятых долей. По умолчанию выключена.
 		softwareGl: (opt('RENDER_SOFTWARE_GL', '0')) !== '0',
+		// Что считать паузой и сколько тишины оставить на стыке.
+		// Порог в минус сорок децибел ловит настоящую тишину и не трогает
+		// комнатный шум; четверть секунды по краям сохраняет дыхание.
+		silenceDb: Number(opt('PAUSE_SILENCE_DB', -38)),
+		pauseSec: Number(opt('PAUSE_MIN_SEC', 0.6)),
+		keepPauseSec: Number(opt('PAUSE_KEEP_SEC', 0.22)),
 	},
 
 	packageDays: Number(opt('PACKAGE_DAYS', 90)),

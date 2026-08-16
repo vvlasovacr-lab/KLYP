@@ -97,6 +97,81 @@ const readPlan = async (userId, videoId) => {
 	}
 };
 
+// ── вырезание пауз ────────────────────────────────────────────
+// Паузы ищем в самом звуке, а не в расшифровке. Распознавание их
+// прячет: на двухсекундной тишине оно растягивает соседнее слово с
+// 9,26 до 11,48 секунды, и промежутка между словами не остаётся —
+// резать движку нечего, хотя тишина есть.
+//
+// Режем по середине паузы, оставляя по чуть-чуть с обеих сторон. Стык
+// получается «тишина к тишине» и потому не слышен: щелчок берётся
+// оттуда, где обрывается звучащая волна.
+const hush = (file) =>
+	new Promise((resolve) => {
+		const ff = spawn('ffmpeg', [
+			'-hide_banner', '-i', file,
+			'-af', `silencedetect=noise=${config.render.silenceDb}dB:d=${config.render.pauseSec}`,
+			'-f', 'null', '-',
+		]);
+
+		let text = '';
+		ff.stderr.on('data', (b) => { text += String(b); });
+		ff.on('close', () => {
+			const found = [];
+			const re = /silence_start:\s*([\d.]+)[\s\S]*?silence_end:\s*([\d.]+)/g;
+			let m;
+			while ((m = re.exec(text))) found.push([Number(m[1]), Number(m[2])]);
+			resolve(found);
+		});
+		ff.on('error', () => resolve([]));
+	});
+
+const trimPauses = async (from, to) => {
+	const pauses = await hush(from);
+	const keep = config.render.keepPauseSec;
+
+	// Куски, которые остаются. По краям паузы оставляем немного тишины —
+	// без неё речь начиналась бы впритык и звучала бы рублено.
+	const parts = [];
+	let at = 0;
+	let cut = 0;
+
+	for (const [start, end] of pauses) {
+		if (end - start < keep * 2 + 0.1) continue;
+		parts.push([at, start + keep]);
+		cut += end - start - keep * 2;
+		at = end - keep;
+	}
+
+	if (!parts.length || cut < 0.3) return null;
+
+	// Отбор кадров по времени, а не вырезка кусков с последующей склейкой:
+	// склейка опирается на метки времени в файле, а они у снятого телефоном
+	// видео бывают неровными — и тогда обрезка молча не срабатывает.
+	const ranges = parts
+		.map(([x, y]) => `between(t,${x.toFixed(3)},${y.toFixed(3)})`)
+		.concat(`gte(t,${at.toFixed(3)})`)
+		.join('+');
+
+	await new Promise((resolve, reject) => {
+		const ff = spawn('ffmpeg', [
+			'-v', 'error', '-y', '-i', from,
+			'-filter_complex',
+			`[0:v]select='${ranges}',setpts=N/FRAME_RATE/TB[v];` +
+			`[0:a]aselect='${ranges}',asetpts=N/SR/TB[a]`,
+			'-map', '[v]', '-map', '[a]',
+			'-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
+			'-r', '30', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', to,
+		]);
+		let tail = '';
+		ff.stderr.on('data', (b) => { tail = (tail + String(b)).slice(-300); });
+		ff.on('close', (code) => (code === 0 ? resolve() : reject(new Error(tail || `ffmpeg ${code}`))));
+		ff.on('error', reject);
+	});
+
+	return {cut, pauses: parts.length};
+};
+
 // Движку нужен свой Python. Локально это venv рядом с движком, на сервере —
 // то, что положил образ. Имя там не всегда python3: nix ставит python3.12,
 // и жёстко зашитое «python3» молча не находится.
@@ -473,7 +548,22 @@ export const runEngine = async ({video, onProgress, onStage}) => {
 	// подставляет имя файла в пути артефактов.
 	const ext = path.extname(video.source_path) || '.mp4';
 	const source = path.join(dir, 'input', `source${ext}`);
-	await fs.copyFile(video.source_path, source);
+
+	// Паузы срезаем до того, как движок услышит запись: дальше он считает
+	// тайминги уже по укороченному звуку, и всё сходится само.
+	const trimmed = await trimPauses(video.source_path, source).catch((err) => {
+		console.error(`  ролик ${video.id} · паузы срезать не вышло: ${String(err.message).slice(0, 140)}`);
+		return null;
+	});
+
+	if (trimmed) {
+		onStage?.('Убираю паузы', 3);
+		console.log(
+			`  ролик ${video.id} · срезано пауз ${trimmed.pauses} на ${trimmed.cut.toFixed(1)}с`
+		);
+	} else {
+		await fs.copyFile(video.source_path, source);
+	}
 
 	const configFile = await writeConfig({video, dir});
 
