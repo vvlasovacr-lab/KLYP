@@ -644,16 +644,15 @@ h1, h2, h3, h4, .display {
         <!-- ══════════ СОЗДАТЬ ══════════ -->
         <section class="page" id="p-new">
           <div class="eyebrow">Исходное видео</div>
-          <input type="file" id="pick" accept="video/*" hidden>
+          <input type="file" id="pick" accept="video/*" multiple hidden>
+          <input type="file" id="pickclips" accept="video/*" multiple hidden>
+          <input type="file" id="pickmusic" accept="audio/*" hidden>
           <div class="drop" id="drop">
             <div class="ico"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg></div>
             <b id="dropname">Загрузить видео</b>
-            <span id="dropnote">До 3 минут, вертикальное или горизонтальное<br>MOV, MP4 · до 2 ГБ</span>
+            <span id="dropnote">Можно несколько дублей — склеим по порядку<br>MOV, MP4</span>
           </div>
           <div class="bar" id="upbar" style="margin-top:10px;display:none"><i id="upfill" style="width:0%"></i></div>
-
-          <div class="eyebrow">Шаблон монтажа</div>
-          <div class="rail" id="rail"></div>
 
           <div class="eyebrow">Что хочешь получить</div>
           <textarea class="field" rows="4" id="brief" placeholder="Опиши ролик своими словами. Например: жёсткий заход, акценты золотом на цифрах, врезки под каждый аргумент, в конце крупно слово ЧАТ в кавычках."></textarea>
@@ -661,6 +660,18 @@ h1, h2, h3, h4, .display {
 
           <div class="eyebrow">Шрифт субтитров</div>
           <div class="hints" id="fonts"></div>
+
+          <div class="eyebrow">Свои врезки</div>
+          <div class="drop" id="dropclips" style="padding:22px 20px">
+            <b id="clipsname" style="font-size:16px">Добавить свои кадры</b>
+            <span id="clipsnote">Съёмка с объекта, скриншоты, что угодно<br>Встанут туда, где по смыслу нужна картинка</span>
+          </div>
+
+          <div class="eyebrow">Своя музыка</div>
+          <div class="drop" id="dropmusic" style="padding:22px 20px">
+            <b id="musicname" style="font-size:16px">Добавить трек</b>
+            <span id="musicnote">Ляжет тихо под голосом<br>MP3, M4A, WAV</span>
+          </div>
 
           <div class="eyebrow">Референс</div>
           <div class="card">
@@ -1010,6 +1021,15 @@ h1, h2, h3, h4, .display {
   var upbar = $('upbar'), upfill = $('upfill'), startBtn = $('start');
   var chosen = null;
 
+  // «1 дубль, 2 дубля, 5 дублей» — без этого счёт выглядит как машинный.
+  function plural(n, one, few, many){
+    var a = Math.abs(n) % 100, b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b > 1 && b < 5) return few;
+    if (b === 1) return one;
+    return many;
+  }
+
   drop.addEventListener('click', function(){ pick.click(); });
 
   // Длительность проверяем прямо в браузере: незачем тянуть
@@ -1024,33 +1044,66 @@ h1, h2, h3, h4, .display {
     });
   }
 
+  // Несколько дублей: считаем общую длину — лимит на ролик общий,
+  // а не на каждый файл по отдельности.
   pick.addEventListener('change', function(){
-    var file = pick.files && pick.files[0];
-    if (!file) return;
+    var files = Array.prototype.slice.call(pick.files || []);
+    if (!files.length) return;
 
-    var mb = file.size / 1048576;
+    var mb = files.reduce(function(sum, f){ return sum + f.size; }, 0) / 1048576;
     if (mb > META.maxUploadMb){
       pick.value = '';
-      shout('Файл слишком большой', Math.round(mb) + ' МБ при лимите ' + META.maxUploadMb + ' МБ');
+      shout('Слишком много', Math.round(mb) + ' МБ при лимите ' + META.maxUploadMb + ' МБ');
       return;
     }
 
-    probe(file).then(function(sec){
+    Promise.all(files.map(probe)).then(function(secs){
+      var total = secs.reduce(function(a, b){ return a + b; }, 0);
       var limit = META.maxDurationSec;
-      if (sec && sec > limit){
+
+      if (total && total > limit){
         pick.value = '';
         chosen = null;
         dropname.textContent = 'Загрузить видео';
-        dropnote.innerHTML = 'До ' + Math.round(limit/60) + ' минут, вертикальное или горизонтальное<br>MOV, MP4 · до ' + META.maxUploadMb + ' МБ';
-        shout('Видео длиннее ' + Math.round(limit/60) + ' минут',
-              'В файле ' + Math.round(sec) + ' сек — обрежь и загрузи снова');
+        dropnote.innerHTML = 'Можно несколько дублей — склеим по порядку<br>MOV, MP4';
+        shout('Вместе длиннее ' + Math.round(limit/60) + ' минут',
+              'Всего ' + Math.round(total) + ' сек — убери лишнее');
         return;
       }
-      chosen = file;
-      dropname.textContent = file.name;
-      dropnote.textContent = Math.round(mb) + ' МБ' + (sec ? ' · ' + Math.round(sec) + ' сек' : '') + ' · готов к монтажу';
-      shout('Файл принят', dropnote.textContent);
+
+      chosen = files;
+      dropname.textContent = files.length > 1
+        ? files.length + ' ' + plural(files.length, 'дубль', 'дубля', 'дублей')
+        : files[0].name;
+      dropnote.textContent = Math.round(mb) + ' МБ' +
+        (total ? ' · ' + Math.round(total) + ' сек' : '') +
+        (files.length > 1 ? ' · склеим по порядку' : ' · готов к монтажу');
+      shout('Принято', dropnote.textContent);
     });
+  });
+
+  // Свои врезки и своя музыка. Их не проверяем на длительность: врезка
+  // берётся кусочком, а музыка тянется под весь ролик.
+  var ownClips = [], ownMusic = null;
+
+  $('dropclips').addEventListener('click', function(){ $('pickclips').click(); });
+  $('pickclips').addEventListener('change', function(){
+    ownClips = Array.prototype.slice.call($('pickclips').files || []);
+    $('clipsname').textContent = ownClips.length
+      ? ownClips.length + ' ' + plural(ownClips.length, 'кадр', 'кадра', 'кадров') + ' своих'
+      : 'Добавить свои кадры';
+    $('clipsnote').textContent = ownClips.length
+      ? 'Встанут туда, где по смыслу нужна картинка'
+      : 'Съёмка с объекта, скриншоты, что угодно';
+  });
+
+  $('dropmusic').addEventListener('click', function(){ $('pickmusic').click(); });
+  $('pickmusic').addEventListener('change', function(){
+    ownMusic = ($('pickmusic').files || [])[0] || null;
+    $('musicname').textContent = ownMusic ? ownMusic.name : 'Добавить трек';
+    $('musicnote').textContent = ownMusic
+      ? Math.round(ownMusic.size / 1048576) + ' МБ · ляжет тихо под голосом'
+      : 'Ляжет тихо под голосом';
   });
 
   // Ключ идемпотентности: если связь оборвётся и мы повторим
@@ -1061,7 +1114,7 @@ h1, h2, h3, h4, .display {
   var pendingToken = null;
 
   startBtn.addEventListener('click', function(){
-    if (!chosen){ shout('Сначала выбери видео', 'Без исходника монтировать нечего'); return; }
+    if (!chosen || !chosen.length){ shout('Сначала выбери видео', 'Без исходника монтировать нечего'); return; }
     upload();
   });
 
@@ -1073,33 +1126,31 @@ h1, h2, h3, h4, .display {
   // рвут соединение на большом теле — «связь прервалась» при живом
   // интернете. Кусок уходит за секунды, а если оборвался — шлём заново
   // только его, а не всю сотню мегабайт.
+  // Файл уходит кусками по восемь мегабайт.
+  //
+  // Целиком одним запросом он не доходит: браузер и приграничный сервер
+  // рвут соединение на большом теле — «связь прервалась» при живом
+  // интернете. Кусок уходит за секунды, а оборвался — шлём заново только
+  // его, а не всю сотню мегабайт.
   function upload(){
-    var sent = 0;
-    var total = chosen.size;
-    var uploadId = null;
-    var chunkSize = 8 * 1024 * 1024;
+    var queue = [].concat(chosen, ownClips, ownMusic ? [ownMusic] : []);
+    var total = queue.reduce(function(sum, f){ return sum + f.size; }, 0);
+    var done = 0;
+    var ids = [];
 
-    var show = function(){
-      var p = total ? Math.round(sent / total * 100) : 0;
+    var show = function(extra){
+      var p = total ? Math.round((done + (extra || 0)) / total * 100) : 0;
       upfill.style.width = p + '%';
       startBtn.textContent = 'Загружаю… ' + p + '%';
     };
 
-    var stop = function(title, note){
-      startBtn.disabled = false;
-      startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
-      upbar.style.display = 'none';
-      shout(title, note);
-    };
-
     // Один кусок с несколькими попытками: обрыв на мобильной сети —
     // обычное дело, и он не должен стоить всей загрузки.
-    var sendPart = function(from, tries){
-      var to = Math.min(from + chunkSize, total);
-      return fetch('/api/upload/part?id=' + encodeURIComponent(uploadId) + '&at=' + from, {
+    var sendPart = function(file, id, from, size, tries){
+      return fetch('/api/upload/part?id=' + encodeURIComponent(id) + '&at=' + from, {
         method: 'POST',
         headers: {'Content-Type': 'application/octet-stream', 'X-Init-Data': INIT},
-        body: chosen.slice(from, to)
+        body: file.slice(from, Math.min(from + size, file.size))
       }).then(function(r){
         return r.json().then(function(j){
           if (!r.ok) throw new Error(j.error || ('сервер ответил ' + r.status));
@@ -1108,20 +1159,41 @@ h1, h2, h3, h4, .display {
       }).catch(function(err){
         if (tries > 0){
           return new Promise(function(ok){ setTimeout(ok, 1200); })
-            .then(function(){ return sendPart(from, tries - 1); });
+            .then(function(){ return sendPart(file, id, from, size, tries - 1); });
         }
         throw err;
       });
     };
 
-    var walk = function(from){
-      if (from >= total) return Promise.resolve();
-      return sendPart(from, 4).then(function(j){
-        // Сервер говорит, сколько байт у него уже есть: если ответ на
-        // прошлый кусок потерялся, повтор не запишется дважды.
-        sent = typeof j.have === 'number' ? j.have : Math.min(from + chunkSize, total);
-        show();
-        return walk(sent);
+    var sendFile = function(file){
+      var id = null, size = 8 * 1024 * 1024;
+
+      var walk = function(from){
+        if (from >= file.size) return Promise.resolve();
+        return sendPart(file, id, from, size, 4).then(function(j){
+          var at = typeof j.have === 'number' ? j.have : Math.min(from + size, file.size);
+          show(at);
+          return walk(at);
+        });
+      };
+
+      return fetch('/api/upload/begin', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Init-Data': INIT},
+        body: JSON.stringify({name: file.name, size: file.size})
+      }).then(function(r){
+        return r.json().then(function(j){
+          if (!r.ok) throw new Error(j.error || 'не удалось начать загрузку');
+          return j;
+        });
+      }).then(function(j){
+        id = j.id;
+        if (j.chunk) size = j.chunk;
+        return walk(0);
+      }).then(function(){
+        done += file.size;
+        show(0);
+        ids.push(id);
       });
     };
 
@@ -1130,22 +1202,15 @@ h1, h2, h3, h4, .display {
     upbar.style.display = '';
     upfill.style.width = '0%';
 
-    fetch('/api/upload/begin', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Init-Data': INIT},
-      body: JSON.stringify({name: chosen.name, size: chosen.size})
-    }).then(function(r){
-      return r.json().then(function(j){
-        if (!r.ok) throw new Error(j.error || 'не удалось начать загрузку');
-        return j;
-      });
-    }).then(function(j){
-      uploadId = j.id;
-      if (j.chunk) chunkSize = j.chunk;
-      return walk(0);
-    }).then(function(){
+    // По одному файлу за раз: параллельная отправка на слабой сети
+    // мешает сама себе и рвётся чаще.
+    queue.reduce(function(chain, file){
+      return chain.then(function(){ return sendFile(file); });
+    }, Promise.resolve()).then(function(){
       startBtn.textContent = 'Ставлю в очередь…';
       if (!pendingToken) pendingToken = newToken();
+
+      var n = chosen.length, m = ownClips.length;
       return fetch('/api/videos/create', {
         method: 'POST',
         headers: {
@@ -1154,9 +1219,11 @@ h1, h2, h3, h4, .display {
           'X-Request-Id': pendingToken
         },
         body: JSON.stringify({
-          uploadId: uploadId,
+          uploadIds: ids.slice(0, n),
+          clipIds: ids.slice(n, n + m),
+          musicId: ownMusic ? ids[n + m] : null,
           title: (brief.value.split(/[.\n]/)[0] || 'Новый ролик').slice(0, 120),
-          template: tplCode,
+          template: 'expose',
           brief: brief.value.slice(0, 4000),
           reference: ($('refurl').value || '').slice(0, 500),
           preview: $('t-preview').classList.contains('on') ? '1' : '0',
@@ -1172,10 +1239,12 @@ h1, h2, h3, h4, .display {
 
       if (res.ok){
         pendingToken = null;
-        chosen = null;
-        pick.value = '';
+        chosen = null; ownClips = []; ownMusic = null;
+        pick.value = ''; $('pickclips').value = ''; $('pickmusic').value = '';
         dropname.textContent = 'Загрузить видео';
-        dropnote.innerHTML = 'До ' + Math.round(META.maxDurationSec/60) + ' минут, вертикальное или горизонтальное<br>MOV, MP4 · до ' + META.maxUploadMb + ' МБ';
+        dropnote.innerHTML = 'Можно несколько дублей — склеим по порядку<br>MOV, MP4';
+        $('clipsname').textContent = 'Добавить свои кадры';
+        $('musicname').textContent = 'Добавить трек';
         brief.value = '';
         shout(res.j.duplicate ? 'Этот ролик уже в очереди' : 'Ролик встал в очередь',
               'Пришлю ссылку в бот, апп можно закрыть');
@@ -1195,7 +1264,10 @@ h1, h2, h3, h4, .display {
 
       shout('Не вышло отправить', res.j.error || ('Сервер ответил ' + res.status));
     }).catch(function(err){
-      stop('Не удалось загрузить', String(err.message || err).slice(0, 120));
+      startBtn.disabled = false;
+      startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
+      upbar.style.display = 'none';
+      shout('Не удалось загрузить', String(err.message || err).slice(0, 120));
     });
   }
 
