@@ -918,6 +918,9 @@ h1, h2, h3, h4, .display {
   /* ── подсказки к брифу ── */
   var HINTS = ['золотом на цифрах','врезка про банкомат','убрать музыку','крупный капс','пауза перед выводом','слово в кавычках в конце'];
   var hints = $('hints'), brief = $('brief');
+  // Чистим перед отрисовкой: иначе повторный запуск дорисовывает второй
+  // набор подсказок к первому.
+  hints.innerHTML = '';
   HINTS.forEach(function(h){
     var b = document.createElement('button');
     b.className = 'hint'; b.type = 'button'; b.textContent = '+ ' + h;
