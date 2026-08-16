@@ -212,6 +212,10 @@ export const buildApi = async ({notify}) => {
 		packages: PACKAGES,
 		templates: TEMPLATES,
 		fonts: await listFonts(),
+		// Слепые зоны площадки — одни и те же числа для рендера и для
+		// приложения. Держать их в двух местах нельзя: разъедутся, и клиент
+		// увидит рамку, которая врёт.
+		safe: SAFE,
 		packageDays: config.packageDays,
 		previewCost: config.render.previewCost,
 		// Лимиты отдаём клиенту, чтобы он отсекал негодный файл
