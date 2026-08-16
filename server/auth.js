@@ -15,6 +15,16 @@ import {config} from './config.js';
 
 const MAX_AGE_SEC = 24 * 60 * 60;
 
+// Последние отказы — чтобы понять, почему настоящий Telegram не проходит.
+// Сюда не попадает ни подпись, ни данные пользователя целиком: только то,
+// что нужно для разбора — какие поля пришли и сошёлся ли счёт.
+export const REJECTS = [];
+
+const remember = (report) => {
+	REJECTS.unshift({...report, at: new Date().toISOString()});
+	REJECTS.length = Math.min(REJECTS.length, 12);
+};
+
 export const parseInitData = (initData) => {
 	if (!initData || typeof initData !== 'string') {
 		return {ok: false, reason: 'пустой initData'};
@@ -45,6 +55,14 @@ export const parseInitData = (initData) => {
 	const a = Buffer.from(mine, 'hex');
 	const b = Buffer.from(hash, 'hex');
 	if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+		remember({
+			поля: [...params.keys()].sort(),
+			ихПодпись: String(hash).slice(0, 10),
+			нашаПодпись: mine.slice(0, 10),
+			ботВКлюче: String(config.bot.token).split(':')[0],
+			длинаКлюча: String(config.bot.token).length,
+			строкаПроверки: check.length,
+		});
 		return {ok: false, reason: 'подпись не сходится'};
 	}
 

@@ -4,14 +4,14 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {pipeline} from 'node:stream/promises';
-import {randomBytes} from 'node:crypto';
+import {randomBytes, createHash} from 'node:crypto';
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import fstatic from '@fastify/static';
 
 import {config, hasLava} from './config.js';
 import {q, one, many, tx} from './db.js';
-import {parseInitData} from './auth.js';
+import {parseInitData, REJECTS} from './auth.js';
 import {
 	upsertUser, publicUser, spendCreditsIn,
 	addCredits, rewardReferrer, getUser,
@@ -363,6 +363,15 @@ export const buildApi = async ({notify}) => {
 		};
 	});
 
+
+	// Разбор отказов по подписи. Обычная проверка здесь не годится:
+	// сюда приходят как раз тогда, когда она и не работает. Ключ —
+	// отпечаток токена бота, знать его может только владелец бота.
+	app.get('/api/diag/auth', async (req, reply) => {
+		const key = createHash('sha256').update(config.bot.token).digest('hex').slice(0, 20);
+		if (req.query?.key !== key) return reply.code(404).send({error: 'Не найдено'});
+		return {ok: true, отказов: REJECTS.length, последние: REJECTS};
+	});
 
 	// ── приём файла кусками ────────────────────────────────────
 	// Начало: заводим пустой файл и запоминаем, чей он.
