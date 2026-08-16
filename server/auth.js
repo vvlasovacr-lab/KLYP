@@ -55,8 +55,13 @@ export const parseInitData = (initData) => {
 	const a = Buffer.from(mine, 'hex');
 	const b = Buffer.from(hash, 'hex');
 	if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+		let who = null;
+		try { who = JSON.parse(params.get('user') || 'null')?.id ?? null; } catch {}
+
 		remember({
+			кто: who,
 			поля: [...params.keys()].sort(),
+			былаSignature: /(^|&)signature=/.test(initData),
 			ихПодпись: String(hash).slice(0, 10),
 			нашаПодпись: mine.slice(0, 10),
 			ботВКлюче: String(config.bot.token).split(':')[0],
