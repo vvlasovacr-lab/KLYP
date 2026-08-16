@@ -292,6 +292,30 @@ const dropOutput = async (video) => {
 	);
 };
 
+// Недокачанные куски. Клиент мог закрыть приложение на середине —
+// такой огрызок никому не нужен, но место занимает.
+const sweepUploads = async () => {
+	const dir = path.join(config.storage.root, 'upload');
+	let files = [];
+	try {
+		files = await fs.readdir(dir);
+	} catch {
+		return 0;
+	}
+
+	const old = Date.now() - 6 * 3600 * 1000;
+	let removed = 0;
+	for (const name of files) {
+		const file = path.join(dir, name);
+		const stat = await fs.stat(file).catch(() => null);
+		if (stat && stat.mtimeMs < old) {
+			await fs.rm(file, {force: true}).catch(() => {});
+			removed++;
+		}
+	}
+	return removed;
+};
+
 // Рабочие папки движка: всё, что не принадлежит роликам в работе.
 // Каждая весит сотни мегабайт, и без уборки диск кончается за сутки.
 const sweepEngineDirs = async () => {
@@ -381,6 +405,7 @@ const freeUpSpace = async () => {
 export const sweepStorage = async () => {
 	const keepSource = Math.max(0, config.storage.sourceKeepDays);
 	const engineDirs = await sweepEngineDirs();
+	const halfDone = await sweepUploads();
 
 	// Исходники готовых роликов: окно правок закрылось.
 	// Правки ссылаются на тот же файл, поэтому берём только те,
@@ -415,10 +440,12 @@ export const sweepStorage = async () => {
 	// нет прямо сейчас, сносим самое старое, не дожидаясь срока.
 	const forced = await freeUpSpace();
 
-	if (sources.length || outputs.length || engineDirs || forced) {
+	if (sources.length || outputs.length || engineDirs || forced || halfDone) {
 		console.log(
 			`  уборка: исходников ${sources.length}, просроченных роликов ${outputs.length},` +
-			` рабочих папок ${engineDirs}` + (forced ? `, аварийно ${forced}` : '')
+			` рабочих папок ${engineDirs}` +
+			(halfDone ? `, брошенных загрузок ${halfDone}` : '') +
+			(forced ? `, аварийно ${forced}` : '')
 		);
 	}
 	return {sources: sources.length, outputs: outputs.length, engineDirs, forced};

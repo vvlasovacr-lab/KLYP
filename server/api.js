@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {pipeline} from 'node:stream/promises';
+import {randomBytes} from 'node:crypto';
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import fstatic from '@fastify/static';
@@ -60,6 +61,26 @@ const recentlyStarted = (userId) =>
 			)
 		: null;
 
+// ── загрузка кусками ──────────────────────────────────────────
+// Целый файл одним запросом не доходит: браузер и приграничный сервер
+// Railway рвут соединение на большом теле — «ERR_HTTP2_PROTOCOL_ERROR».
+// Ошибка непостоянная, поэтому выглядела как «то грузится, то нет».
+//
+// Куски по несколько мегабайт уходят за секунды и такой беды не знают.
+// Оборвался кусок — переслали его один, а не всю сотню мегабайт заново.
+const CHUNK_LIMIT = 12 * 1024 * 1024;
+
+const uploadDir = () => path.join(config.storage.root, 'upload');
+
+const uploadPaths = (id) => ({
+	body: path.join(uploadDir(), `${id}.part`),
+	meta: path.join(uploadDir(), `${id}.json`),
+});
+
+// Имя куска приходит от клиента, поэтому проверяем его на вид, а не
+// на существование файла: «../../» в имени увело бы запись из папки.
+const cleanId = (raw) => (/^[a-zA-Z0-9_-]{10,64}$/.test(String(raw ?? '')) ? String(raw) : null);
+
 export const buildApi = async ({notify}) => {
 	const app = Fastify({
 		logger: false,
@@ -70,6 +91,14 @@ export const buildApi = async ({notify}) => {
 	await app.register(multipart, {
 		limits: {fileSize: config.storage.maxUploadMb * 1024 * 1024, files: 1},
 	});
+
+	// Кусок файла приходит сырыми байтами. Свой разборщик нужен потому,
+	// что стандартный знает только JSON и формы.
+	app.addContentTypeParser(
+		'application/octet-stream',
+		{parseAs: 'buffer', bodyLimit: CHUNK_LIMIT},
+		(req, body, done) => done(null, body)
+	);
 
 	// Мини-апп отдаётся статикой с этого же домена — Telegram требует https,
 	// а Railway его уже даёт.
@@ -334,6 +363,73 @@ export const buildApi = async ({notify}) => {
 		};
 	});
 
+
+	// ── приём файла кусками ────────────────────────────────────
+	// Начало: заводим пустой файл и запоминаем, чей он.
+	app.post('/api/upload/begin', async (req, reply) => {
+		const user = await auth(req, reply);
+		if (!user) return;
+
+		const size = Number(req.body?.size) || 0;
+		const cap = config.storage.maxUploadMb * 1024 * 1024;
+		if (size > cap) {
+			return reply.code(413).send({error: `Файл больше ${config.storage.maxUploadMb} МБ`});
+		}
+
+		await fsp.mkdir(uploadDir(), {recursive: true});
+		const id = randomBytes(18).toString('base64url');
+		const {body, meta} = uploadPaths(id);
+
+		await fsp.writeFile(body, '');
+		await fsp.writeFile(meta, JSON.stringify({
+			user: user.id,
+			name: String(req.body?.name ?? 'video.mp4').slice(0, 120),
+			size,
+			at: Date.now(),
+		}), 'utf8');
+
+		return {ok: true, id, chunk: CHUNK_LIMIT - 1024 * 1024};
+	});
+
+	// Кусок. Дописывается в конец, поэтому порядок держит клиент —
+	// он и шлёт их по одному, дожидаясь ответа.
+	app.post('/api/upload/part', async (req, reply) => {
+		const user = await auth(req, reply);
+		if (!user) return;
+
+		const id = cleanId(req.query?.id);
+		if (!id) return reply.code(400).send({error: 'Неверный ключ загрузки'});
+
+		const {body, meta} = uploadPaths(id);
+		const info = await fsp.readFile(meta, 'utf8').then(JSON.parse).catch(() => null);
+		if (!info) return reply.code(404).send({error: 'Загрузка не найдена — начни заново'});
+		if (Number(info.user) !== Number(user.id)) {
+			return reply.code(403).send({error: 'Чужая загрузка'});
+		}
+
+		const chunk = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+		if (!chunk.length) return reply.code(400).send({error: 'Пустой кусок'});
+
+		// Клиент шлёт смещение куска: если ответ на прошлый кусок потерялся
+		// и клиент его повторил, второй раз дописывать те же байты нельзя.
+		const at = Number(req.query?.at);
+		const {size: have} = await fsp.stat(body);
+		if (Number.isFinite(at) && at !== have) {
+			return {ok: true, have, repeat: true};
+		}
+
+		await fsp.appendFile(body, chunk);
+		const now = have + chunk.length;
+
+		if (now > config.storage.maxUploadMb * 1024 * 1024) {
+			await fsp.unlink(body).catch(() => {});
+			await fsp.unlink(meta).catch(() => {});
+			return reply.code(413).send({error: `Файл больше ${config.storage.maxUploadMb} МБ`});
+		}
+
+		return {ok: true, have: now};
+	});
+
 	// Загрузка исходника и постановка в очередь — одним запросом,
 	// чтобы не плодить недоделанные черновики.
 	app.post('/api/videos/create', async (req, reply) => {
@@ -341,17 +437,45 @@ export const buildApi = async ({notify}) => {
 		if (!parsed.ok) return reply.code(401).send({error: parsed.reason});
 		const user = await upsertUser(parsed.user, parsed.startParam);
 
-		// Повтор того же запроса не должен стоить второго ролика.
-		// Проверяем до чтения файла: незачем качать сотню мегабайт,
-		// чтобы потом их выбросить.
 		const token = clientToken(req);
-		const already = await byToken(user.id, token);
-		if (already) {
-			return {ok: true, id: Number(already.id), duplicate: true};
-		}
 
 		const fields = {};
 		let saved = null;
+
+		// Файл, собранный из кусков: тела в этом запросе нет, пришёл только
+		// ключ загрузки. Основной путь — клиент шлёт файл именно так.
+		if (!req.isMultipart()) {
+			const already = await byToken(user.id, token);
+			if (already) return {ok: true, id: Number(already.id), duplicate: true};
+
+			const id = cleanId(req.body?.uploadId);
+			if (!id) return reply.code(400).send({error: 'Не приложен файл видео'});
+
+			const {body, meta} = uploadPaths(id);
+			const info = await fsp.readFile(meta, 'utf8').then(JSON.parse).catch(() => null);
+			if (!info) return reply.code(404).send({error: 'Загрузка не найдена — начни заново'});
+			if (Number(info.user) !== Number(user.id)) {
+				return reply.code(403).send({error: 'Чужая загрузка'});
+			}
+
+			const dir = path.join(config.storage.root, 'src', String(user.id));
+			await fsp.mkdir(dir, {recursive: true});
+			const ext = path.extname(info.name || '.mp4').slice(0, 8) || '.mp4';
+			saved = path.join(dir, `${Date.now()}${ext}`);
+			await fsp.rename(body, saved).catch(async () => {
+				await fsp.copyFile(body, saved);
+				await fsp.unlink(body).catch(() => {});
+			});
+			await fsp.unlink(meta).catch(() => {});
+
+			for (const key of ['title', 'template', 'brief', 'reference', 'preview', 'font']) {
+				if (req.body?.[key] != null) fields[key] = String(req.body[key]);
+			}
+		} else {
+		// Старый путь — файл целиком в одном запросе. Оставлен как запасной.
+		// Ответить раньше, чем тело дочитано, здесь нельзя: браузер в этот
+		// момент ещё шлёт байты и получает обрыв протокола вместо ответа.
+		let duplicate = await byToken(user.id, token);
 
 		for await (const part of req.parts()) {
 			if (part.type === 'file') {
@@ -369,6 +493,12 @@ export const buildApi = async ({notify}) => {
 			} else {
 				fields[part.fieldname] = part.value;
 			}
+		}
+
+		if (duplicate) {
+			if (saved) await fsp.unlink(saved).catch(() => {});
+			return {ok: true, id: Number(duplicate.id), duplicate: true};
+		}
 		}
 
 		if (!saved) return reply.code(400).send({error: 'Не приложен файл видео'});

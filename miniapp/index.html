@@ -1062,58 +1062,122 @@ h1, h2, h3, h4, .display {
 
   startBtn.addEventListener('click', function(){
     if (!chosen){ shout('Сначала выбери видео', 'Без исходника монтировать нечего'); return; }
-    upload(1);
+    upload();
   });
 
   // Отправка вынесена отдельно, чтобы повторить её при обрыве:
   // сотня мегабайт с телефона по мобильной сети рвётся регулярно.
-  function upload(attempt){
-    var form = new FormData();
-    form.append('title', (brief.value.split(/[.\n]/)[0] || 'Новый ролик').slice(0, 120));
-    form.append('template', tplCode);
-    form.append('brief', brief.value.slice(0, 4000));
-    form.append('reference', ($('refurl').value || '').slice(0, 500));
-    form.append('preview', $('t-preview').classList.contains('on') ? '1' : '0');
-    if (fontKey) form.append('font', fontKey);
-    form.append('file', chosen, chosen.name);
+  // Файл уходит кусками по несколько мегабайт.
+  //
+  // Целиком одним запросом он не доходит: браузер и приграничный сервер
+  // рвут соединение на большом теле — «связь прервалась» при живом
+  // интернете. Кусок уходит за секунды, а если оборвался — шлём заново
+  // только его, а не всю сотню мегабайт.
+  function upload(){
+    var sent = 0;
+    var total = chosen.size;
+    var uploadId = null;
+    var chunkSize = 8 * 1024 * 1024;
 
-    if (!pendingToken) pendingToken = newToken();
-
-    startBtn.disabled = true;
-    startBtn.textContent = 'Загружаю…';
-    upbar.style.display = '';
-    upfill.style.width = '0%';
-
-    // XHR, а не fetch: только он показывает прогресс отправки,
-    // а файл может грузиться минуту с телефона.
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/videos/create');
-    xhr.setRequestHeader('X-Init-Data', INIT);
-    xhr.setRequestHeader('X-Request-Id', pendingToken);
-
-    xhr.upload.onprogress = function(e){
-      if (!e.lengthComputable) return;
-      var p = Math.round(e.loaded / e.total * 100);
+    var show = function(){
+      var p = total ? Math.round(sent / total * 100) : 0;
       upfill.style.width = p + '%';
       startBtn.textContent = 'Загружаю… ' + p + '%';
     };
 
-    xhr.onload = function(){
-      var j = {};
-      try { j = JSON.parse(xhr.responseText); } catch (e) {}
+    var stop = function(title, note){
+      startBtn.disabled = false;
+      startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
+      upbar.style.display = 'none';
+      shout(title, note);
+    };
 
+    // Один кусок с несколькими попытками: обрыв на мобильной сети —
+    // обычное дело, и он не должен стоить всей загрузки.
+    var sendPart = function(from, tries){
+      var to = Math.min(from + chunkSize, total);
+      return fetch('/api/upload/part?id=' + encodeURIComponent(uploadId) + '&at=' + from, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/octet-stream', 'X-Init-Data': INIT},
+        body: chosen.slice(from, to)
+      }).then(function(r){
+        return r.json().then(function(j){
+          if (!r.ok) throw new Error(j.error || ('сервер ответил ' + r.status));
+          return j;
+        });
+      }).catch(function(err){
+        if (tries > 0){
+          return new Promise(function(ok){ setTimeout(ok, 1200); })
+            .then(function(){ return sendPart(from, tries - 1); });
+        }
+        throw err;
+      });
+    };
+
+    var walk = function(from){
+      if (from >= total) return Promise.resolve();
+      return sendPart(from, 4).then(function(j){
+        // Сервер говорит, сколько байт у него уже есть: если ответ на
+        // прошлый кусок потерялся, повтор не запишется дважды.
+        sent = typeof j.have === 'number' ? j.have : Math.min(from + chunkSize, total);
+        show();
+        return walk(sent);
+      });
+    };
+
+    startBtn.disabled = true;
+    startBtn.textContent = 'Загружаю… 0%';
+    upbar.style.display = '';
+    upfill.style.width = '0%';
+
+    fetch('/api/upload/begin', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Init-Data': INIT},
+      body: JSON.stringify({name: chosen.name, size: chosen.size})
+    }).then(function(r){
+      return r.json().then(function(j){
+        if (!r.ok) throw new Error(j.error || 'не удалось начать загрузку');
+        return j;
+      });
+    }).then(function(j){
+      uploadId = j.id;
+      if (j.chunk) chunkSize = j.chunk;
+      return walk(0);
+    }).then(function(){
+      startBtn.textContent = 'Ставлю в очередь…';
+      if (!pendingToken) pendingToken = newToken();
+      return fetch('/api/videos/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Init-Data': INIT,
+          'X-Request-Id': pendingToken
+        },
+        body: JSON.stringify({
+          uploadId: uploadId,
+          title: (brief.value.split(/[.\n]/)[0] || 'Новый ролик').slice(0, 120),
+          template: tplCode,
+          brief: brief.value.slice(0, 4000),
+          reference: ($('refurl').value || '').slice(0, 500),
+          preview: $('t-preview').classList.contains('on') ? '1' : '0',
+          font: fontKey || ''
+        })
+      });
+    }).then(function(r){
+      return r.json().then(function(j){ return {ok: r.ok, status: r.status, j: j}; });
+    }).then(function(res){
       startBtn.disabled = false;
       startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
       upbar.style.display = 'none';
 
-      if (xhr.status >= 200 && xhr.status < 300){
+      if (res.ok){
         pendingToken = null;
         chosen = null;
         pick.value = '';
         dropname.textContent = 'Загрузить видео';
         dropnote.innerHTML = 'До ' + Math.round(META.maxDurationSec/60) + ' минут, вертикальное или горизонтальное<br>MOV, MP4 · до ' + META.maxUploadMb + ' МБ';
         brief.value = '';
-        shout(j.duplicate ? 'Этот ролик уже в очереди' : 'Ролик встал в очередь',
+        shout(res.j.duplicate ? 'Этот ролик уже в очереди' : 'Ролик встал в очередь',
               'Пришлю ссылку в бот, апп можно закрыть');
         go('p-lib');
         refresh();
@@ -1121,38 +1185,18 @@ h1, h2, h3, h4, .display {
         return;
       }
 
-      // 409 — повтор того же запроса. Не ошибка: ролик уже собирается.
-      if (xhr.status === 409){
+      if (res.status === 409){
         pendingToken = null;
-        shout('Уже в работе', j.error || 'Ролик поставлен в очередь секунду назад');
+        shout('Уже в работе', res.j.error || 'Ролик поставлен в очередь секунду назад');
         go('p-lib');
         refresh();
         return;
       }
 
-      shout('Не вышло отправить', j.error || ('Сервер ответил ' + xhr.status));
-    };
-
-    xhr.onerror = function(){
-      // Ключ запроса тот же, поэтому повтор не спишет второй ролик.
-      if (attempt < 3){
-        shout('Связь прервалась', 'Продолжаю загрузку, не закрывай приложение');
-        setTimeout(function(){ upload(attempt + 1); }, 2000);
-        return;
-      }
-      startBtn.disabled = false;
-      startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
-      upbar.style.display = 'none';
-      shout('Не удалось загрузить',
-            'Проверь интернет и попробуй снова — ролик не спишется дважды');
-    };
-
-    xhr.ontimeout = xhr.onerror;
-    // Час на загрузку: с телефона сотня мегабайт идёт и двадцать минут,
-    // а браузер по умолчанию сдаётся куда раньше.
-    xhr.timeout = 3600000;
-
-    xhr.send(form);
+      shout('Не вышло отправить', res.j.error || ('Сервер ответил ' + res.status));
+    }).catch(function(err){
+      stop('Не удалось загрузить', String(err.message || err).slice(0, 120));
+    });
   }
 
   /* ═══════════ БИБЛИОТЕКА ═══════════ */
