@@ -316,6 +316,7 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		duration: rough.duration,
 		marks: video.marks ?? [],
 		previous,
+		brief: video.brief ?? '',
 	});
 
 	if (director) {

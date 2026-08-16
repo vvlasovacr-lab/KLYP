@@ -225,7 +225,20 @@ const complaints = (marks, previous) => {
 	);
 };
 
-export const direct = async ({chunks, duration, marks = [], previous = null}) => {
+// Что клиент попросил своими словами. Это не подсказка, а задание:
+// он платит за ролик и лучше знает, чего хочет от своей аудитории.
+const wanted = (brief) => {
+	const text = String(brief ?? '').trim();
+	if (!text) return '';
+	return (
+		'\n\n## Чего просит клиент\n\n' + text.slice(0, 4000) + '\n\n' +
+		'Это его ролик и его слова — они важнее общих правил выше. Если он ' +
+		'просит меньше подсветки, больше врезок, другой заголовок или особый ' +
+		'тон — делай так. Молчит о чём-то — решай сам.'
+	);
+};
+
+export const direct = async ({chunks, duration, marks = [], previous = null, brief = ''}) => {
 	if (!hasModel()) return null;
 	if (!chunks?.length) return null;
 
@@ -238,6 +251,7 @@ export const direct = async ({chunks, duration, marks = [], previous = null}) =>
 		`Врезки, которые есть в библиотеке:\n${clips}\n\n` +
 		`Расшифровка (в квадратных скобках — секунда начала реплики, ` +
 		`через @ — секунда каждого слова):\n\n${transcript(chunks)}` +
+		wanted(brief) +
 		complaints(marks, previous);
 
 	const started = Date.now();

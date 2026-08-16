@@ -49,7 +49,7 @@ export const SUB = {
 	// верхняя кромка текста всегда на одном месте, что бы в нём ни было.
 	topY: 0.5, // на груди, на уровне петлички — лицо остаётся чистым
 	onCardTopY: 0.46, // на врезке лица нет, можно начать выше
-	maxWidth: 0.74, // ширина блока: помещается между краем и кнопками
+	maxWidth: 0.86, // одно слово в кадре можно вести шире, чем целую строку
 	lineGap: 1.14,
 	gap: '0.32em', // расстояние между словами (плотнее — слова слипаются)
 	shadow:
@@ -58,7 +58,7 @@ export const SUB = {
 	base: {
 		font: 'Montserrat',
 		weight: 700,
-		size: 62,
+		size: 96,
 		uppercase: false,
 		color: PALETTE.white,
 		gradient: null,
@@ -67,7 +67,7 @@ export const SUB = {
 	accent: {
 		font: 'Montserrat',
 		weight: 800,
-		size: 104,
+		size: 132,
 		uppercase: true,
 		color: null,
 		gradient: `linear-gradient(180deg, ${PALETTE.goldTop} 0%, ${PALETTE.goldMid} 52%, ${PALETTE.goldBot} 100%)`,
@@ -76,7 +76,8 @@ export const SUB = {
 	pop: 0.08, // насколько подрастает слово в момент произнесения
 	riseFrom: 22, // с какой высоты слово въезжает, px
 	fadeOut: 0.14, // строка не обрывается, а гаснет
-	minFit: 0.6, // сильнее этого длинное слово не ужимается
+	minFit: 0.62, // сильнее этого длинное слово не ужимается
+	growTo: 1.75, // насколько короткое слово может вырасти сверх кегля
 };
 
 // ── ТАЙМИНГ РЕПЛИК ────────────────────────────────────────
