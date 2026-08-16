@@ -197,7 +197,35 @@ const transcript = (chunks) =>
 
 let client = null;
 
-export const direct = async ({chunks, duration}) => {
+// Замечания клиента к прошлой сборке. Он смотрел готовый ролик, тыкал
+// в момент на дорожке и писал своими словами, что не так.
+const complaints = (marks, previous) => {
+	if (!marks?.length) return '';
+
+	const was = previous
+		? 'Что было в прошлой сборке:\n' +
+			`заголовок: ${previous.title.join(' / ') || '—'}\n` +
+			`подсветка: ${previous.accents.map((a) => `${a.text}@${a.at}`).join(', ') || '—'}\n` +
+			`врезки: ${previous.broll.map((b) => `${b.file}@${b.at}`).join(', ') || '—'}\n\n`
+		: '';
+
+	const list = marks
+		.map((m) => `${Number(m.at_sec ?? m.at).toFixed(1)}с — ${String(m.note ?? '').trim()}`)
+		.join('\n');
+
+	return (
+		'\n\n## Правки клиента\n\n' + was +
+		'Клиент посмотрел прошлую сборку и отметил моменты:\n' + list + '\n\n' +
+		'Сделай разметку заново, но поменяй только то, к чему претензия. ' +
+		'Остальное оставь как было — клиент это не просил трогать, и лишние ' +
+		'перемены он воспримет как поломку.\n\n' +
+		'Секунды в замечаниях — по готовому ролику, а он короче исходника: ' +
+		'из него вырезаны паузы. Ориентируйся на смысл сказанного рядом с ' +
+		'этой секундой, а не на само число.'
+	);
+};
+
+export const direct = async ({chunks, duration, marks = [], previous = null}) => {
 	if (!hasModel()) return null;
 	if (!chunks?.length) return null;
 
@@ -209,7 +237,8 @@ export const direct = async ({chunks, duration}) => {
 		`Длительность ролика: ${duration.toFixed(1)} секунд.\n\n` +
 		`Врезки, которые есть в библиотеке:\n${clips}\n\n` +
 		`Расшифровка (в квадратных скобках — секунда начала реплики, ` +
-		`через @ — секунда каждого слова):\n\n${transcript(chunks)}`;
+		`через @ — секунда каждого слова):\n\n${transcript(chunks)}` +
+		complaints(marks, previous);
 
 	const started = Date.now();
 

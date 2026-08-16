@@ -113,13 +113,27 @@ const process1 = async (job) => {
 		throw new Error('Исходник удалён по сроку хранения — загрузи видео заново');
 	}
 
+	// Правка: клиент отметил моменты в готовом ролике и написал, что не
+	// так. Метки уходят в монтаж — без них пересборка выдала бы ровно то
+	// же самое, и клиент зря потратил бы ролик из пакета.
+	const marks = video.parent_id
+		? await many(
+			'SELECT at_sec, note FROM marks WHERE video_id = $1 ORDER BY at_sec',
+			[video.id]
+		)
+		: [];
+
+	if (marks.length) {
+		console.log(`  ролик ${video.id} · правка ${video.parent_id} · меток ${marks.length}`);
+	}
+
 	await setStage(job.id, 'Готовлю материал', 4);
 
 	// Весь монтаж делает движок: распознавание, речевой монтаж, разметка,
 	// вёрстка субтитров, рендер и оценка качества. Наше дело — очередь,
 	// хранение и доставка.
 	const run = await runEngine({
-		video,
+		video: {...video, marks, parent: video.parent_id ?? null},
 		onStage: (label, at) => setStage(job.id, label, at),
 		onProgress: (p) => setStage(job.id, 'Рендер', p),
 	});

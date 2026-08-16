@@ -76,6 +76,27 @@ const findWorkspace = async (dir) => {
 	}
 };
 
+// Разметка прошлой сборки лежит рядом с готовым роликом. По ней видно,
+// что именно клиент забраковал: без неё замечание «убери врезку» не с чем
+// сопоставить.
+const readPlan = async (userId, videoId) => {
+	try {
+		const file = path.join(
+			config.storage.root, 'out', String(userId), `${videoId}.props.json`
+		);
+		const {plan, chunks} = JSON.parse(await fs.readFile(file, 'utf8'));
+		return {
+			title: plan?.title?.lines?.map((l) => l.pieces[0].text) ?? [],
+			accents: (plan?.accents ?? []).map(([at, , text, tone]) => ({at, text, tone})),
+			broll: (plan?.broll ?? []).map((b) => ({at: b.from, file: b.file})),
+			words: chunks?.length ?? 0,
+		};
+	} catch {
+		// Прошлая разметка не сохранилась — не повод отказывать в правке.
+		return null;
+	}
+};
+
 // Движку нужен свой Python. Локально это venv рядом с движком, на сервере —
 // то, что положил образ. Имя там не всегда python3: nix ставит python3.12,
 // и жёстко зашитое «python3» молча не находится.
@@ -284,7 +305,18 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 	// по правилам, как раньше.
 	onStage?.('Придумываю монтаж', 44);
 	const rough = fromEngine(montage, {template: video.template || 'expose'});
-	const director = await direct({chunks: rough.chunks, duration: rough.duration});
+
+	// Если это правка — показываем модели прежнюю разметку и замечания
+	// клиента к ней. Без прежней она пересоберёт ролик с нуля и заодно
+	// поменяет то, к чему претензий не было.
+	const previous = video.parent ? await readPlan(video.user_id, video.parent) : null;
+
+	const director = await direct({
+		chunks: rough.chunks,
+		duration: rough.duration,
+		marks: video.marks ?? [],
+		previous,
+	});
 
 	if (director) {
 		console.log(
