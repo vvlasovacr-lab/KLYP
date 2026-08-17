@@ -175,8 +175,14 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 	// а не выбирается здесь — рендер обязан быть повторяемым.
 	const look = plan?.look ?? null;
 
-	const title = tl.title ?? TITLE;
-	const titleOnScreen = time >= title.in && time < title.out;
+	// Плашки может не быть вовсе: модель решает, открывать ролик
+	// заголовком или сразу голосом. Подставлять сюда образец из кода
+	// нельзя — в кадре окажется чужой текст про кредитку.
+	// Настоящий план пришёл без плашки — значит её и не должно быть.
+	// Образец из кода показываем только когда плана нет вовсе: это
+	// открытая студия, а не заказ клиента.
+	const title = tl.title ?? (plan && typeof plan === 'object' ? null : TITLE);
+	const titleOnScreen = Boolean(title) && time >= title.in && time < title.out;
 	const shout = tl.shoutAt(time);
 	const broll = tl.brollAt(time);
 
