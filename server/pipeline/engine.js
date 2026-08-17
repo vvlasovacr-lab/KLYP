@@ -279,7 +279,16 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		// восьми. На вертикальном экране разницы не видно, а файл вчетверо
 		// легче: быстрее уходит клиенту и быстрее сохраняется в телефон.
 		// Площадка всё равно пережмёт его по-своему.
-		args.push(`--scale=${config.render.deliverScale}`, `--crf=${config.render.crf}`);
+		// Дробная высота роняет рендер, поэтому долю проверяем, а не верим
+		// ей на слово: не делится начисто — отдаём в полный кадр.
+		const w = 1080 * config.render.deliverScale;
+		const h = 1920 * config.render.deliverScale;
+		const whole = Number.isInteger(w) && Number.isInteger(h) && w % 2 === 0 && h % 2 === 0;
+
+		if (whole) args.push(`--scale=${config.render.deliverScale}`);
+		else console.warn(`  доля ${config.render.deliverScale} даёт дробный кадр — отдаю в полный размер`);
+
+		args.push(`--crf=${config.render.crf}`);
 	}
 
 	try {
