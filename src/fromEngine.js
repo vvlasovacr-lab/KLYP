@@ -9,7 +9,7 @@
 // как есть; всё, чего он не считает (ритм склеек, вид плашки), достраивается
 // по нашим правилам.
 
-import {pickLook, fingerprint} from './looks.js';
+import {pickLook, fingerprint, PALETTES, LAYOUTS, FONTS} from './looks.js';
 import {checkSafeArea, fitTitle} from './safety.js';
 
 // ── что считать акцентом ──────────────────────────────────────
@@ -570,9 +570,9 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	// разбор или спокойный разговор. От него зависит плотность эффектов.
 	const kind = director?.template ?? template;
 
-	// Оформление вычисляется из самого ролика: другой исходник почти
-	// наверняка получит другую палитру и раскладку, а один и тот же —
-	// всегда одну и ту же.
+	// Оформление выбирает модель — под то, о чём и как говорят в ролике.
+	// Если она промолчала, оно вычисляется из самого файла: другой
+	// исходник почти наверняка получит другую палитру и раскладку.
 	const look = pickLook(
 		kind,
 		fingerprint({
@@ -581,6 +581,14 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 			text: chunks.map((chunk) => chunk.words.map((w) => w.text).join(' ')).join(' '),
 		})
 	);
+
+	// Выбор модели перебивает выпавшее по отпечатку.
+	const asked = director?.look;
+	if (asked) {
+		if (PALETTES[asked.palette]) look.palette = PALETTES[asked.palette];
+		if (LAYOUTS[asked.layout]) look.layout = LAYOUTS[asked.layout];
+		if (FONTS[asked.font]) look.font = FONTS[asked.font];
+	}
 
 	// Клиент мог выбрать шрифт сам — тогда он перебивает тот, что выпал
 	// ролику по отпечатку. Заголовок оставляем дисплейным: подписи
@@ -623,6 +631,11 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	// придумывает модель, длину слов не угадать — что не влезло, укорачиваем
 	// по словам, а не обрезаем по буквам.
 	if (title) title = fitTitle(title);
+
+	// Не каждый ролик надо открывать заголовком: если человек заходит
+	// издалека, плашка поверх такого начала выглядит наклейкой. Решает
+	// модель — она видит, чем начинается речь.
+	if (director?.opening === 'сразу') title = null;
 
 	const cutGap = look.cutGap;
 
