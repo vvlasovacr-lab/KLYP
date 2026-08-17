@@ -205,8 +205,7 @@ const process1 = async (job) => {
 	const {outFile, poster, sourceBytes} = await collectResult({video, run});
 
 	const token = makeShareToken();
-	const duration = Number(run.quality?.duration) || Number(video.duration_sec) || 0;
-	const score = run.quality?.final_score ?? run.quality?.overall_score ?? null;
+	const duration = Number(video.duration_sec) || 0;
 
 	await q(
 		`UPDATE videos SET status = 'ready', output_path = $2, poster_path = $3,
@@ -218,7 +217,7 @@ const process1 = async (job) => {
 		 WHERE id = $1`,
 		[video.id, outFile, poster, run.ms,
 		 sourceBytes, run.outputBytes, token, config.storage.outputKeepDays,
-		 duration, JSON.stringify(run.quality ?? {}), run.speechProvider]
+		 duration, JSON.stringify({words: run.words ?? 0, speech: run.speech ?? null}), run.speechProvider]
 	);
 	await q(
 		"UPDATE jobs SET status = 'done', progress = 100, stage = 'Готово', finished_at = NOW() WHERE id = $1",
@@ -232,14 +231,14 @@ const process1 = async (job) => {
 	}
 
 	const cut = run.speech
-		? ` · срезано ${(Number(run.speech.removed_duration) || 0).toFixed(1)}с речи`
+		? ` · срезано пауз ${run.speech.pauses} на ${(Number(run.speech.removed_duration) || 0).toFixed(1)}с`
 		: '';
 
 	console.log(
 		`  ролик ${video.id} · готов · ${Number(duration).toFixed(1)}с` +
 		` · речь ${run.speechProvider}${cut}` +
 		` · монтаж ${sec(run.ms)}с` +
-		` · качество ${score === null ? '—' : Number(score).toFixed(2)}` +
+		` · слов ${run.words ?? 0}` +
 		` · вход ${mb(sourceBytes)} · выход ${mb(run.outputBytes)}`
 	);
 
