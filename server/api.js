@@ -378,6 +378,18 @@ export const buildApi = async ({notify}) => {
 		return {ok: true, отказов: REJECTS.length, последние: REJECTS};
 	});
 
+	// Журнал падения по ключу — читать его нужно как раз тогда, когда
+	// ролик не собрался, а значит обычная проверка ничего не покажет.
+	app.get('/api/diag/render/:id', async (req, reply) => {
+		const key = createHash('sha256').update(config.bot.token).digest('hex').slice(0, 20);
+		if (req.query?.key !== key) return reply.code(404).send({error: 'Не найдено'});
+
+		const file = path.join(config.storage.root, 'logs', `${Number(req.params.id)}.log`);
+		const text = await fsp.readFile(file, 'utf8').catch(() => null);
+		if (!text) return reply.code(404).send({error: 'Журнала нет'});
+		return reply.type('text/plain; charset=utf-8').send(text);
+	});
+
 	// ── приём файла кусками ────────────────────────────────────
 	// Начало: заводим пустой файл и запоминаем, чей он.
 	app.post('/api/upload/begin', async (req, reply) => {

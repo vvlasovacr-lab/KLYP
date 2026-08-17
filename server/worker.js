@@ -110,6 +110,18 @@ const glue = (parts, target) =>
 		ff.on('error', reject);
 	});
 
+// Журнал последнего падения. Лежит отдельно от рабочей папки, которую
+// сносит уборка, и весит килобайты.
+const keepLog = async (dir, videoId) => {
+	const from = path.join(dir, 'render.log');
+	const text = await fs.readFile(from, 'utf8').catch(() => null);
+	if (!text) return;
+
+	const to = path.join(config.storage.root, 'logs');
+	await fs.mkdir(to, {recursive: true});
+	await fs.writeFile(path.join(to, `${videoId}.log`), text.slice(-20000), 'utf8');
+};
+
 let notify = async () => {}; // подменяется ботом при старте
 export const setNotifier = (fn) => { notify = fn; };
 
@@ -301,12 +313,12 @@ const tick = async () => {
 	} catch (err) {
 		await failJob(job, err).catch(() => {});
 	} finally {
-		// Рабочая папка движка весит сотни мегабайт. При успехе её сносит
-		// collectResult, при падении не сносил никто — и диск кончился
-		// после полутора десятков неудачных попыток.
-		await cleanupEngineRun(
-			path.join(config.storage.root, 'engine', String(job.video_id))
-		).catch(() => {});
+		// Рабочая папка весит сотни мегабайт — её надо снести. Но журнал
+		// рендера сохраняем: без него причина падения теряется вместе с
+		// папкой, и остаётся только гадать.
+		const dir = path.join(config.storage.root, 'engine', String(job.video_id));
+		await keepLog(dir, job.video_id).catch(() => {});
+		await cleanupEngineRun(dir).catch(() => {});
 		running--;
 	}
 };
