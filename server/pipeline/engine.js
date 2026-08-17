@@ -273,6 +273,13 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 
 	if (video.preview_only) {
 		args.push(`--scale=${config.render.previewScale}`, '--jpeg-quality=70');
+	} else {
+		// Кадр рисуем в 1080×1920, отдаём в 720×1280 — именно так весят
+		// ролики, которые реально выкладывают: полтора-два мегабита вместо
+		// восьми. На вертикальном экране разницы не видно, а файл вчетверо
+		// легче: быстрее уходит клиенту и быстрее сохраняется в телефон.
+		// Площадка всё равно пережмёт его по-своему.
+		args.push(`--scale=${config.render.deliverScale}`, `--crf=${config.render.crf}`);
 	}
 
 	try {

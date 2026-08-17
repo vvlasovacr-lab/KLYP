@@ -43,17 +43,37 @@ const Piece = ({piece, fit = 1, look}) => {
 	);
 };
 
-const Line = ({line, index, fps, frame, enterFrame, fit, look}) => {
-	const local = frame - enterFrame - Math.round(index * TITLE.stagger * fps);
+// Одно слово плашки. Всплывает само по себе, со своей задержкой —
+// заголовок набирается на глазах, а не выпрыгивает готовым куском.
+const Rising = ({delay, fps, frame, children}) => {
+	const local = frame - delay;
 	const appear = spring({
 		frame: local,
 		fps,
-		config: {damping: 14, stiffness: 170, mass: 0.6},
+		config: {damping: 14, stiffness: 180, mass: 0.55},
 	});
 
 	const hidden = local < 0;
-	const scale = interpolate(appear, [0, 1], [0.86, 1]);
-	const y = interpolate(appear, [0, 1], [40, 0]);
+
+	return (
+		<span
+			style={{
+				display: 'inline-block',
+				transform: `translateY(${hidden ? 26 : interpolate(appear, [0, 1], [26, 0])}px)` +
+					` scale(${hidden ? 0.9 : interpolate(appear, [0, 1], [0.9, 1])})`,
+				opacity: hidden ? 0 : appear,
+				transformOrigin: 'center bottom',
+			}}
+		>
+			{children}
+		</span>
+	);
+};
+
+const Line = ({line, index, fps, frame, enterFrame, fit, look, from}) => {
+	// Слово за словом. Бейдж не дробим: у него общая подложка, и по словам
+	// она рассыпалась бы на несколько плашек.
+	let seen = from;
 
 	return (
 		<div
@@ -63,19 +83,43 @@ const Line = ({line, index, fps, frame, enterFrame, fit, look}) => {
 				alignItems: 'center',
 				justifyContent: 'center',
 				gap: TITLE.wordGap,
-				transform: `translate(${line.dx}px, ${hidden ? 40 : y}px) scale(${
-					hidden ? 0.86 : scale
-				})`,
-				opacity: hidden ? 0 : appear,
-				transformOrigin: 'center center',
+				transform: `translateX(${line.dx}px)`,
 			}}
 		>
-			{line.pieces.map((piece, i) => (
-				<Piece key={i} piece={piece} fit={fit} look={look} />
-			))}
+			{line.pieces.map((piece, i) => {
+				if (piece.kind === 'badge') {
+					const delay = enterFrame + Math.round(seen * TITLE.wordStep * fps);
+					seen += 1;
+					return (
+						<Rising key={i} delay={delay} fps={fps} frame={frame}>
+							<Piece piece={piece} fit={fit} look={look} />
+						</Rising>
+					);
+				}
+
+				const words = String(piece.text).split(/\s+/).filter(Boolean);
+				return words.map((word, w) => {
+					const delay = enterFrame + Math.round(seen * TITLE.wordStep * fps);
+					seen += 1;
+					return (
+						<Rising key={`${i}-${w}`} delay={delay} fps={fps} frame={frame}>
+							<Piece piece={{...piece, text: word}} fit={fit} look={look} />
+						</Rising>
+					);
+				});
+			})}
 		</div>
 	);
 };
+
+// Сколько слов в строке — чтобы следующая строка начинала отсчёт с них,
+// а не с нуля: иначе вторая строка обгонит первую.
+const wordsIn = (line) =>
+	line.pieces.reduce(
+		(n, piece) =>
+			n + (piece.kind === 'badge' ? 1 : String(piece.text).split(/\s+/).filter(Boolean).length),
+		0
+	);
 
 export const TitleCard = ({title, time, fromSeconds = 0, look}) => {
 	const T = title ?? TITLE;
@@ -134,6 +178,7 @@ export const TitleCard = ({title, time, fromSeconds = 0, look}) => {
 					fit={fit}
 					look={look}
 					enterFrame={Math.round((T.in - fromSeconds) * fps)}
+					from={T.lines.slice(0, i).reduce((n, l) => n + wordsIn(l), 0)}
 				/>
 			))}
 		</div>

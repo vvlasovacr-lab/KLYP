@@ -150,6 +150,11 @@ export const config = {
 		// Черновик: дешевле и быстрее, списывает долю кредита.
 		previewCost: Number(opt('PREVIEW_COST', 0.3)),
 		previewScale: Number(opt('PREVIEW_SCALE', 0.45)),
+		// Готовый ролик отдаём в 720×1280: так весят настоящие рилсы.
+		deliverScale: Number(opt('DELIVER_SCALE', 0.667)),
+		// Чем больше число, тем легче файл. 24 — обычное качество для
+		// соцсетей, разница с 20 на телефоне не видна.
+		crf: Number(opt('RENDER_CRF', 24)),
 		timeoutMin: Number(opt('RENDER_TIMEOUT_MIN', 30)),
 		// Сколько ждать один кадр. У Remotion по умолчанию тридцать секунд —
 		// на слабой машине кадр с видео и шрифтами в них не укладывается.
