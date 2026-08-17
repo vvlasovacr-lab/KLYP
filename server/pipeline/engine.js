@@ -21,6 +21,7 @@ import {fileURLToPath} from 'node:url';
 import {config, hasSpeech} from './../config.js';
 import {direct} from './director.js';
 import {listen} from './listen.js';
+import {eyes} from './frames.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -189,17 +190,23 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 	// поменяет то, к чему претензий не было.
 	const previous = video.parent ? await readPlan(video.user_id, video.parent) : null;
 
+	// Кадры из ролика: без них модель монтирует вслепую — не знает, где
+	// человек, где пусто и когда он меняет позу.
+	const seen = await eyes(source, rough.duration, path.join(dir, 'кадры')).catch(() => []);
+
 	const director = await direct({
 		chunks: rough.chunks,
 		duration: rough.duration,
 		marks: video.marks ?? [],
 		previous,
 		brief: video.brief ?? '',
+		frames: seen,
 	});
 
 	if (director) {
 		console.log(
-			`  режиссёр: ${director.accents?.length ?? 0} акцентов,` +
+			`  режиссёр: смотрел ${seen.length} кадров,` +
+			` ${director.accents?.length ?? 0} акцентов,` +
 			` ${director.broll?.length ?? 0} врезок, жанр ${director.template}` +
 			` · ${(director.ms / 1000).toFixed(1)}с` +
 			` · ${director.usage.in}+${director.usage.out} токенов`

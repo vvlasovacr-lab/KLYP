@@ -152,6 +152,23 @@ const PROMPT = `Ты монтируешь вертикальные ролики 
 
 На вход — расшифровка речи с секундами. На выход — разметка монтажа.
 
+## Что видно в кадре
+
+Кроме расшифровки тебе показывают кадры из этого ролика — по одному
+каждые несколько секунд. Смотри на них: они говорят то, чего в тексте
+нет.
+
+Где человек и где пусто. Если он занимает низ кадра — текст туда ставить
+нельзя, он ляжет на руки и на стул; веди его выше. Сидит слева — уводи
+вправо. Свободный верх — можно ставить над головой.
+
+Что меняется между кадрами. Сменил позу, поднял руку, повернулся —
+это готовое место для склейки: движение само прячет стык. Ровная поза
+через весь ролик — значит держать внимание придётся текстом и врезками.
+
+Какой в кадре свет и фон. Тёмная студия и белая кухня просят разной
+палитры.
+
 ## Как открыть
 
 Не каждый ролик надо начинать заголовком. Плашка нужна, когда первая
@@ -295,7 +312,9 @@ const wanted = (brief) => {
 	);
 };
 
-export const direct = async ({chunks, duration, marks = [], previous = null, brief = ''}) => {
+export const direct = async ({
+	chunks, duration, marks = [], previous = null, brief = '', frames = [],
+}) => {
 	if (!hasModel()) return null;
 	if (!chunks?.length) return null;
 
@@ -314,6 +333,22 @@ export const direct = async ({chunks, duration, marks = [], previous = null, bri
 	const started = Date.now();
 
 	try {
+		// Кадры идут первыми: модель разбирает картинку до того, как
+		// прочтёт текст, и дальше читает его уже зная, что в кадре.
+		const content = [
+			...frames.map((frame) => ({
+				type: 'image',
+				source: {type: 'base64', media_type: 'image/jpeg', data: frame.base64},
+			})),
+			{
+				type: 'text',
+				text: frames.length
+					? `Кадры из ролика — на ${frames.map((f) => f.at).join(', ')} секунде ` +
+						`соответственно.\n\n${task}`
+					: task,
+			},
+		];
+
 		const answer = await client.messages.create({
 			model: config.anthropic.model,
 			max_tokens: 8000,
@@ -323,7 +358,7 @@ export const direct = async ({chunks, duration, marks = [], previous = null, bri
 				effort: 'medium',
 				format: {type: 'json_schema', schema: SHAPE},
 			},
-			messages: [{role: 'user', content: task}],
+			messages: [{role: 'user', content}],
 		});
 
 		if (answer.stop_reason === 'refusal') {
