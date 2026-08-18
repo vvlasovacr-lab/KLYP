@@ -134,26 +134,6 @@ const SHAPE = {
 			},
 		},
 
-		// Карточка-утверждение: весь экран под цвет, на нём одно слово.
-		statements: {
-			type: 'array',
-			description:
-				'Карточки во весь экран: заливка цветом и одно слово. ' +
-				'Речь не прерывается, прерывается картинка — это пауза для глаза ' +
-				'посреди сплошного лица. Ставь одну-две за ролик, на переломе мысли. ' +
-				'Больше двух — ролик рассыпается',
-			items: {
-				type: 'object',
-				properties: {
-					at: {type: 'number', description: 'Секунда, на которой карточка появляется'},
-					text: {type: 'string', description: 'Одно слово, максимум два'},
-					hold: {type: 'number', description: 'Сколько секунд держится: от 0.7 до 1.6'},
-				},
-				required: ['at', 'text', 'hold'],
-				additionalProperties: false,
-			},
-		},
-
 		opening: {
 			type: 'string',
 			enum: ['плашка', 'сразу'],
@@ -286,7 +266,7 @@ const SHAPE = {
 		},
 	},
 	required: [
-		'title', 'accents', 'quiet', 'broll', 'statements', 'fixes',
+		'title', 'accents', 'quiet', 'broll', 'fixes',
 		'opening', 'look', 'template', 'manner', 'frame',
 	],
 	additionalProperties: false,

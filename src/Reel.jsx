@@ -2,6 +2,7 @@ import {
 	AbsoluteFill,
 	Audio,
 	Easing,
+	Img,
 	OffthreadVideo,
 	Sequence,
 	interpolate,
@@ -17,7 +18,6 @@ import {TitleCard} from './TitleCard.jsx';
 import {Shout} from './Shout.jsx';
 import {BrollCard} from './BrollCard.jsx';
 import {CornerCard} from './CornerCard.jsx';
-import {Statement} from './Statement.jsx';
 import {retime} from './retime.js';
 import {readPlan} from './timeline.js';
 import {CAMERA, CARD, CUT, TITLE} from './style.js';
@@ -99,6 +99,10 @@ const useCameraZoom = (time, fromSeconds, accentStarts, force = 1) => {
 // семидесяти миллисекунд: щелчка уже не слышно, а начало слова ещё не
 // съедено.
 const SPLICE = 2;
+
+// Свои кадры клиент грузит и фотографиями: скриншот переписки, снимок
+// документа. Их надо не проигрывать, а показывать с наездом.
+const STILL = /\.(jpe?g|png|webp|heic|heif)$/i;
 
 const Speaker = ({source, speech, fromSeconds, style}) => {
 	const {fps, durationInFrames} = useVideoConfig();
@@ -205,8 +209,6 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 	const broll = insert && insert.where !== 'угол' ? insert : null;
 	const corner = insert && insert.where === 'угол' ? insert : null;
 
-	// Карточка-утверждение перекрывает всё: она и есть картинка.
-	const statement = tl.statementAt?.(time) ?? null;
 
 	// живая врезка входит и уходит так же мягко, как графическая
 	const brollFade = broll
@@ -257,21 +259,42 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 					layout="none"
 				>
 					<AbsoluteFill style={{overflow: 'hidden', opacity: brollFade}}>
-						<OffthreadVideo
-							/* Своя врезка клиента лежит рядом с исходником, наша —
-							   в библиотеке. Отличаем по метке, а не по имени файла:
-							   клиент может назвать свой клип как угодно. */
-							src={staticFile(broll.own ? broll.file : `broll/${broll.file}`)}
-							startFrom={Math.round((broll.startFrom ?? 0) * fps)}
-							style={{
-								width: '100%',
-								height: '100%',
-								objectFit: 'cover',
-								transform: `scale(${punch})`,
-								filter: brollBlur > 0.1 ? `blur(${brollBlur}px)` : 'none',
-							}}
-							muted
-						/>
+						{/* Своя врезка клиента лежит рядом с исходником, наша —
+						    в библиотеке. Отличаем по метке, а не по имени файла:
+						    клиент может назвать свой клип как угодно. */}
+						{STILL.test(broll.file) ? (
+							/* Фотография. Неподвижная картинка посреди ролика
+							   выглядит мёртвой, поэтому она едет: медленный
+							   наезд на всю длину врезки. */
+							<Img
+								src={staticFile(broll.own ? broll.file : `broll/${broll.file}`)}
+								style={{
+									width: '100%',
+									height: '100%',
+									objectFit: 'cover',
+									transform: `scale(${punch * interpolate(
+										time,
+										[broll.from, broll.to],
+										[1.04, 1.16],
+										{extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}
+									)})`,
+									filter: brollBlur > 0.1 ? `blur(${brollBlur}px)` : 'none',
+								}}
+							/>
+						) : (
+							<OffthreadVideo
+								src={staticFile(broll.own ? broll.file : `broll/${broll.file}`)}
+								startFrom={Math.round((broll.startFrom ?? 0) * fps)}
+								style={{
+									width: '100%',
+									height: '100%',
+									objectFit: 'cover',
+									transform: `scale(${punch})`,
+									filter: brollBlur > 0.1 ? `blur(${brollBlur}px)` : 'none',
+								}}
+								muted
+							/>
+						)}
 					</AbsoluteFill>
 				</Sequence>
 			) : broll?.card ? (
@@ -307,12 +330,8 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 					})
 				: null}
 
-			{/* Карточка-утверждение закрывает собой всё: и лицо, и текст.
-			    Она и есть картинка на эти секунды. */}
-			<Statement card={statement} time={time} look={look} />
-
 			{/* плашка и выкрик перебивают обычные титры — иначе текст дублируется */}
-			{statement ? null : titleOnScreen ? (
+			{titleOnScreen ? (
 				<TitleCard title={title} time={time} fromSeconds={fromSeconds} look={look} manner={manner} />
 			) : shout ? (
 				<Shout shout={shout} fromSeconds={fromSeconds} look={look} />

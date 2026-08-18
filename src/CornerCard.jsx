@@ -14,6 +14,7 @@
 
 import {
 	AbsoluteFill,
+	Img,
 	OffthreadVideo,
 	interpolate,
 	spring,
@@ -22,6 +23,9 @@ import {
 	useVideoConfig,
 } from 'remotion';
 import {CORNER, SAFE} from './style.js';
+
+// Скриншот или снимок документа показывают не проигрыванием, а наездом.
+const STILL = /\.(jpe?g|png|webp|heic|heif)$/i;
 
 export const CornerCard = ({shot, time, fromSeconds = 0}) => {
 	const frame = useCurrentFrame();
@@ -71,12 +75,29 @@ export const CornerCard = ({shot, time, fromSeconds = 0}) => {
 					backgroundColor: '#000',
 				}}
 			>
-				<OffthreadVideo
-					src={staticFile(shot.own ? shot.file : `broll/${shot.file}`)}
-					startFrom={0}
-					muted
-					style={{width: '100%', height: '100%', objectFit: 'cover'}}
-				/>
+				{/* Углом чаще всего показывают скриншот — то есть фото.
+				    Оно тоже едет, иначе карточка выглядит наклейкой. */}
+				{STILL.test(shot.file) ? (
+					<Img
+						src={staticFile(shot.own ? shot.file : `broll/${shot.file}`)}
+						style={{
+							width: '100%',
+							height: '100%',
+							objectFit: 'cover',
+							transform: `scale(${interpolate(time, [shot.from, shot.to], [1.02, 1.1], {
+								extrapolateLeft: 'clamp',
+								extrapolateRight: 'clamp',
+							})})`,
+						}}
+					/>
+				) : (
+					<OffthreadVideo
+						src={staticFile(shot.own ? shot.file : `broll/${shot.file}`)}
+						startFrom={0}
+						muted
+						style={{width: '100%', height: '100%', objectFit: 'cover'}}
+					/>
+				)}
 			</div>
 		</AbsoluteFill>
 	);

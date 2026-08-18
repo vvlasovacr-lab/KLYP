@@ -13,9 +13,6 @@ import {pickLook, fingerprint, PALETTES, LAYOUTS, FONTS} from './looks.js';
 import {checkSafeArea, fitTitle} from './safety.js';
 import {toManner, PACE} from './manner.js';
 
-// Сколько карточек во весь экран разрешено при разной плотности звука.
-const LOUD_CARDS = {'тихо': 0, 'умеренно': 1, 'плотно': 2};
-
 // ── что считать акцентом ──────────────────────────────────────
 // Движок помечает важные слова ролью emphasis и даёт им категорию:
 // число, деньги, проблема, конфликт, эмоция. Категория определяет цвет —
@@ -665,25 +662,6 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 		])
 		.sort((a, b) => a[0] - b[0]);
 
-	// Карточки-утверждения: весь экран под цвет, одно слово. Больше двух
-	// за ролик — он рассыпается, поэтому режем лишние здесь, а не надеемся
-	// на послушание модели.
-	const statements = (fromModel.statements ?? [])
-		.map((card) => {
-			const at = Number(card.at);
-			const hold = Math.min(1.6, Math.max(0.7, Number(card.hold) || 1));
-			const text = String(card.text ?? '').trim().slice(0, 24);
-			if (!text || !Number.isFinite(at) || at < 2 || at > duration - 2) return null;
-			return {from: Number(at.toFixed(2)), to: Number((at + hold).toFixed(2)), text};
-		})
-		.filter(Boolean)
-		.sort((a, b) => a.from - b.from)
-		// Карточка во весь экран — приём громкий. В спокойной подаче она
-		// читается как чужая вставка: клиент просил разбор без крика, а
-		// посреди ролика вспыхивает заливка. Тихому почерку — ни одной,
-		// обычному — одна, плотному — две.
-		.slice(0, LOUD_CARDS[toManner(director?.manner).sound] ?? 1);
-
 	// Почерк этого ролика: как ведёт себя текст, в каком темпе идут
 	// склейки, насколько громко оформление. Выбирает модель — без неё
 	// берётся то, как было всегда.
@@ -697,9 +675,8 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	const plan = {
 		accents,
 		broll,
-		shouts: statements.length ? [] : toShouts(chunks, duration),
+		shouts: toShouts(chunks, duration),
 		quiet,
-		statements,
 		cuts: toCuts({engine, accents, broll, duration, gap: cutGap, uneven: tempo.uneven}),
 		title,
 		// палитра, раскладка и шрифт этого ролика

@@ -60,9 +60,6 @@ export const readPlan = (plan) => {
 	// Слова, которые надо увести на второй план: связки, вводные,
 	// «ну вот», «то есть». В эталоне они идут заметно мельче сути.
 	const quiet = list(p.quiet);
-	// Карточки-утверждения: весь экран заливается цветом, на нём одно
-	// слово. Пауза для глаза посреди сплошного лица.
-	const cards = list(p.statements).slice().sort((a, b) => a.from - b.from);
 
 	return {
 		title: normalizeTitle(p.title),
@@ -72,7 +69,6 @@ export const readPlan = (plan) => {
 
 		isQuiet: (time) => quiet.some(([from, to]) => time >= from && time < to),
 
-		statementAt: (time) => cards.find((c) => time >= c.from && time < c.to) ?? null,
 
 		// моменты, на которых камера делает наезд
 		accentStarts: accents.map(([from]) => from),
