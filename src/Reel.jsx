@@ -16,6 +16,8 @@ import {Subtitles} from './Subtitles.jsx';
 import {TitleCard} from './TitleCard.jsx';
 import {Shout} from './Shout.jsx';
 import {BrollCard} from './BrollCard.jsx';
+import {CornerCard} from './CornerCard.jsx';
+import {Statement} from './Statement.jsx';
 import {retime} from './retime.js';
 import {readPlan} from './timeline.js';
 import {CAMERA, CARD, CUT, TITLE} from './style.js';
@@ -195,7 +197,16 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 	const title = tl.title ?? (plan && typeof plan === 'object' ? null : TITLE);
 	const titleOnScreen = Boolean(title) && time >= title.in && time < title.out;
 	const shout = tl.shoutAt(time);
-	const broll = tl.brollAt(time);
+
+	// Врезка бывает двух видов. Во весь экран — уводит от говорящего,
+	// показывает предмет разговора. Углом — лицо остаётся, в углу
+	// всплывает доказательство. Какую взять, решила модель.
+	const insert = tl.brollAt(time);
+	const broll = insert && insert.where !== 'угол' ? insert : null;
+	const corner = insert && insert.where === 'угол' ? insert : null;
+
+	// Карточка-утверждение перекрывает всё: она и есть картинка.
+	const statement = tl.statementAt?.(time) ?? null;
 
 	// живая врезка входит и уходит так же мягко, как графическая
 	const brollFade = broll
@@ -267,6 +278,10 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 				<BrollCard shot={broll} time={time} fromSeconds={fromSeconds} manner={manner} />
 			) : null}
 
+			{/* Врезка углом: лицо остаётся, доказательство всплывает
+			    сверху. Идёт поверх видео, но под текстом. */}
+			<CornerCard shot={corner} time={time} fromSeconds={fromSeconds} />
+
 			{flash > 0 ? (
 				<AbsoluteFill style={{backgroundColor: `rgba(${tint.rgb},${flash})`}} />
 			) : null}
@@ -292,8 +307,12 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 					})
 				: null}
 
+			{/* Карточка-утверждение закрывает собой всё: и лицо, и текст.
+			    Она и есть картинка на эти секунды. */}
+			<Statement card={statement} time={time} look={look} />
+
 			{/* плашка и выкрик перебивают обычные титры — иначе текст дублируется */}
-			{titleOnScreen ? (
+			{statement ? null : titleOnScreen ? (
 				<TitleCard title={title} time={time} fromSeconds={fromSeconds} look={look} manner={manner} />
 			) : shout ? (
 				<Shout shout={shout} fromSeconds={fromSeconds} look={look} />
@@ -303,6 +322,7 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 					time={time}
 					fromSeconds={fromSeconds}
 					isAccent={tl.isAccent}
+					isQuiet={tl.isQuiet}
 					onCard={Boolean(tl.brollAt)}
 					brollAt={tl.brollAt}
 					look={look}

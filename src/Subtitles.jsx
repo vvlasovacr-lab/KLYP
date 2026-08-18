@@ -104,32 +104,32 @@ const timeline = (chunks, subs) => {
 	});
 };
 
-// Кегль под группу: самое длинное слово должно влезать в строку, а вся
-// группа — в отведённое число строк. Берём меньшее из двух.
+// Общий масштаб группы.
 //
-// Ширину каждого слова считаем по тому ярусу, которым его и нарисуют.
-// Подсвеченное слово идёт заглавными, а заглавные заметно шире строчных:
-// если мерить всю группу базовым ярусом, подсвеченное слово вылезает за
-// край кадра и ему срезает первую букву.
-const fitSize = (words, tierOf, maxPx, maxLines) => {
-	const widths = words.map((w) => {
-		const tier = tierOf(w);
-		// Приводим к общему кеглю: рисуем все слова одним размером, значит
-		// и мерить их надо в одном масштабе.
-		return (estimateWidth(w.word ?? w.text, tier, tier.size) / tier.size);
-	});
+// Раньше здесь подбирался один кегль на все слова, и каждое слово
+// растягивалось на всю ширину. Теперь у каждого слова свой вес — мелкое
+// служебное, крупное ударное, — и подбирать надо не размер, а поправку:
+// во сколько ужать всю группу, чтобы она влезла в отведённую полосу и в
+// разрешённое число строк. Соотношение весов при этом сохраняется.
+const fitScaleOf = (words, sizeOf, tierOf, maxPx, maxLines) => {
+	const widths = words.map((w) => estimateWidth(w.word ?? w.text, tierOf(w), sizeOf(w)));
 
-	const base = tierOf(words[0]).size;
 	const longest = Math.max(...widths);
-	const total = widths.reduce((a, b) => a + b, 0) + 0.32 * Math.max(0, words.length - 1);
+	const gap = Math.max(...words.map(sizeOf)) * 0.26;
+	const total = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, words.length - 1);
 
-	const byWord = maxPx / Math.max(0.01, longest);
-	const byAll = (maxPx * maxLines) / Math.max(0.01, total);
+	// Самое длинное слово обязано влезть в строку; вся группа — в
+	// отведённые строки. Берём меньшее, но не ужимаем сильнее предела:
+	// нечитаемый субтитр хуже, чем перенос.
+	const byWord = maxPx / Math.max(1, longest);
+	const byAll = (maxPx * maxLines) / Math.max(1, total);
 
-	return Math.min(base * SUB.growTo, Math.max(base * SUB.minFit, Math.min(byWord, byAll)));
+	return Math.max(SUB.minFit, Math.min(1, byWord, byAll));
 };
 
-export const Subtitles = ({chunks, time, fromSeconds, isAccent, brollAt, look, manner}) => {
+export const Subtitles = ({
+	chunks, time, fromSeconds, isAccent, isQuiet, brollAt, look, manner,
+}) => {
 	useCurrentFrame();
 	const {width, height} = useVideoConfig();
 
@@ -163,17 +163,35 @@ export const Subtitles = ({chunks, time, fromSeconds, isAccent, brollAt, look, m
 	// уходит выше, чтобы не сесть на чужую картинку.
 	const topY = brollAt(group.from) ? SUB.onCardTopY : (look?.layout.topY ?? SUB.topY);
 
+	// Вес слова: мелкое служебное, обычное, ударное. В эталоне именно
+	// размер работает ударением, а не цвет и не эффект.
+	//
+	// Крупное слово мы и красим акцентным ярусом, поэтому его вес и его
+	// цвет решаются вместе, а не порознь.
+	const weightOf = (word) => {
+		if (subs === 'караоке') return 'обычно';
+		if (isQuiet?.(word.start)) return 'мелко';
+		return isAccent(word.start) ? 'крупно' : 'обычно';
+	};
+
+	const sizeOf = (word) => {
+		const tier = tierOf(word);
+		return tier.size * (SUB.weight[weightOf(word)] ?? 1) * (subs === 'крупно' ? 1.3 : 1);
+	};
+
 	// Меряем не по текущему кадру, а по худшему.
 	//
-	// В караоке подсветка едет по словам, и если считать кегль по тому,
-	// что подсвечено сейчас, фраза меняла бы размер на каждом слове —
-	// текст дёргался бы весь ролик. Поэтому считаем так, будто заглавным
-	// станет каждое слово: размер получается один на всю жизнь группы и
-	// заведомо влезает.
-	const measure = subs === 'караоке' ? () => accentTier : tierOf;
+	// В караоке подсветка едет по словам, и если считать по тому, что
+	// подсвечено сейчас, фраза меняла бы размер на каждом слове — текст
+	// дёргался бы весь ролик. Поэтому считаем так, будто заглавным станет
+	// каждое слово: масштаб получается один на всю жизнь группы.
+	const measureTier = subs === 'караоке' ? () => accentTier : tierOf;
+	const measureSize = subs === 'караоке'
+		? () => accentTier.size
+		: sizeOf;
 
 	const maxPx = width * SUB.maxWidth;
-	const size = fitSize(group.words, measure, maxPx, LINES[subs] ?? 1);
+	const fit = fitScaleOf(group.words, measureSize, measureTier, maxPx, LINES[subs] ?? 1);
 
 	const life = group.until - group.from;
 	const enter = Math.min(IN, life / 3);
@@ -231,8 +249,8 @@ export const Subtitles = ({chunks, time, fromSeconds, isAccent, brollAt, look, m
 					flexWrap: 'wrap',
 					justifyContent: 'center',
 					alignItems: 'baseline',
-					columnGap: size * 0.26,
-					rowGap: size * 0.1,
+					columnGap: baseTier.size * fit * 0.26,
+					rowGap: baseTier.size * fit * 0.1,
 					maxWidth: maxPx,
 					transform: `translateY(${rise}px) scale(${scale})`,
 					transformOrigin: 'center bottom',
@@ -256,7 +274,10 @@ export const Subtitles = ({chunks, time, fromSeconds, isAccent, brollAt, look, m
 								display: 'inline-block',
 								fontFamily: wordTier.font,
 								fontWeight: wordTier.weight,
-								fontSize: size,
+								// Свой размер у каждого слова: мелкое служебное,
+								// крупное ударное. Поправка общая — она держит
+								// группу внутри полосы, не ломая соотношений.
+								fontSize: (subs === 'караоке' ? accentTier.size : sizeOf(word)) * fit,
 								letterSpacing: '-0.01em',
 								whiteSpace: 'nowrap',
 								opacity: dim,

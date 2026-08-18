@@ -494,7 +494,11 @@ const brollFromModel = (marks, {gap = 7, length = 2.6, duration = 0} = {}) => {
 		const to = Number(Math.min(from + length, duration - 1).toFixed(2));
 		if (to - from < 1.2) continue;
 
-		shots.push({from: Number(from.toFixed(2)), to, file, startFrom: 0, zoom: 1});
+		// Где показать: во весь экран или карточкой в углу. Углом лицо
+		// остаётся в кадре — так показывают доказательство, не бросая
+		// говорящего.
+		const where = mark.where === 'угол' ? 'угол' : 'экран';
+		shots.push({from: Number(from.toFixed(2)), to, file, startFrom: 0, zoom: 1, where});
 		used.add(file);
 		lastEnd = to;
 	}
@@ -645,6 +649,34 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	// модель — она видит, чем начинается речь.
 	if (director?.opening === 'сразу') title = null;
 
+	// Проходные слова: связки, вводные, повторы. В эталоне размер и есть
+	// ударение, поэтому им нужен свой список — иначе всё звучит одинаково
+	// громко.
+	const flatWords = chunks.flatMap((chunk) => chunk.words);
+	const quiet = (fromModel.quiet ?? [])
+		.map((mark) => snap(flatWords, mark))
+		.filter(Boolean)
+		.map((word) => [
+			Number(word.start.toFixed(2)),
+			Number(Math.max(word.end, word.start + 0.12).toFixed(2)),
+		])
+		.sort((a, b) => a[0] - b[0]);
+
+	// Карточки-утверждения: весь экран под цвет, одно слово. Больше двух
+	// за ролик — он рассыпается, поэтому режем лишние здесь, а не надеемся
+	// на послушание модели.
+	const statements = (fromModel.statements ?? [])
+		.map((card) => {
+			const at = Number(card.at);
+			const hold = Math.min(1.6, Math.max(0.7, Number(card.hold) || 1));
+			const text = String(card.text ?? '').trim().slice(0, 24);
+			if (!text || !Number.isFinite(at) || at < 2 || at > duration - 2) return null;
+			return {from: Number(at.toFixed(2)), to: Number((at + hold).toFixed(2)), text};
+		})
+		.filter(Boolean)
+		.sort((a, b) => a.from - b.from)
+		.slice(0, 2);
+
 	// Почерк этого ролика: как ведёт себя текст, в каком темпе идут
 	// склейки, насколько громко оформление. Выбирает модель — без неё
 	// берётся то, как было всегда.
@@ -658,7 +690,9 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	const plan = {
 		accents,
 		broll,
-		shouts: toShouts(chunks, duration),
+		shouts: statements.length ? [] : toShouts(chunks, duration),
+		quiet,
+		statements,
 		cuts: toCuts({engine, accents, broll, duration, gap: cutGap, uneven: tempo.uneven}),
 		title,
 		// палитра, раскладка и шрифт этого ролика

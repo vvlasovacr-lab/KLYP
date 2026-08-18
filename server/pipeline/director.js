@@ -15,6 +15,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import {config, hasModel} from './../config.js';
+import {REFERENCE, referenceFrames} from './reference.js';
 
 // Что лежит в библиотеке врезок. Описания нужны модели, а не нам:
 // по ним она решает, подходит ли клип к тому, о чём идёт речь.
@@ -84,8 +85,18 @@ const SHAPE = {
 					at: {type: 'number', description: 'Секунда, с которой показывать'},
 					file: {type: 'string', description: 'Имя файла строго из списка'},
 					why: {type: 'string', description: 'Какая фраза это оправдывает'},
+					where: {
+						type: 'string',
+						enum: ['экран', 'угол'],
+						description:
+							'«экран» — врезка во весь кадр, говорящего не видно: так показывают ' +
+							'предмет разговора. «угол» — лицо остаётся, в верхнем углу всплывает ' +
+							'небольшая карточка: так показывают доказательство, не бросая ' +
+							'говорящего. Если ставить всё во весь экран, ролик рассыпается ' +
+							'на слайд-шоу — чередуй',
+					},
 				},
-				required: ['at', 'file', 'why'],
+				required: ['at', 'file', 'why', 'where'],
 				additionalProperties: false,
 			},
 		},
@@ -103,6 +114,46 @@ const SHAPE = {
 				additionalProperties: false,
 			},
 		},
+		// Слова, которые уходят на второй план: связки, вводные, «ну вот»,
+		// «то есть». В эталоне они идут заметно мельче сути — размер там
+		// и работает ударением.
+		quiet: {
+			type: 'array',
+			description:
+				'Служебные и проходные слова, которые надо показать мелко. ' +
+				'Связки, вводные, повторы — всё, что не несёт смысла. ' +
+				'Их должно быть заметно больше, чем ударных',
+			items: {
+				type: 'object',
+				properties: {
+					at: {type: 'number', description: 'Секунда слова из расшифровки'},
+					text: {type: 'string', description: 'Само слово'},
+				},
+				required: ['at', 'text'],
+				additionalProperties: false,
+			},
+		},
+
+		// Карточка-утверждение: весь экран под цвет, на нём одно слово.
+		statements: {
+			type: 'array',
+			description:
+				'Карточки во весь экран: заливка цветом и одно слово. ' +
+				'Речь не прерывается, прерывается картинка — это пауза для глаза ' +
+				'посреди сплошного лица. Ставь одну-две за ролик, на переломе мысли. ' +
+				'Больше двух — ролик рассыпается',
+			items: {
+				type: 'object',
+				properties: {
+					at: {type: 'number', description: 'Секунда, на которой карточка появляется'},
+					text: {type: 'string', description: 'Одно слово, максимум два'},
+					hold: {type: 'number', description: 'Сколько секунд держится: от 0.7 до 1.6'},
+				},
+				required: ['at', 'text', 'hold'],
+				additionalProperties: false,
+			},
+		},
+
 		opening: {
 			type: 'string',
 			enum: ['плашка', 'сразу'],
@@ -232,7 +283,8 @@ const SHAPE = {
 		},
 	},
 	required: [
-		'title', 'accents', 'broll', 'fixes', 'opening', 'look', 'template', 'manner', 'frame',
+		'title', 'accents', 'quiet', 'broll', 'statements', 'fixes',
+		'opening', 'look', 'template', 'manner', 'frame',
 	],
 	additionalProperties: false,
 };
@@ -257,6 +309,8 @@ const PROMPT = `Ты монтируешь вертикальные ролики 
 
 Какой в кадре свет и фон. Тёмная студия и белая кухня просят разной
 палитры.
+
+${REFERENCE}
 
 ## Как открыть
 
@@ -468,19 +522,49 @@ export const direct = async ({
 	try {
 		// Кадры идут первыми: модель разбирает картинку до того, как
 		// прочтёт текст, и дальше читает его уже зная, что в кадре.
-		const content = [
-			...frames.map((frame) => ({
-				type: 'image',
-				source: {type: 'base64', media_type: 'image/jpeg', data: frame.base64},
-			})),
-			{
+		// Сначала эталон, потом материал.
+		//
+		// Порядок здесь не косметика: модель разбирает картинки в том
+		// порядке, в каком их получила. Показав сперва образец, мы даём ей
+		// точку отсчёта — дальше она смотрит на материал уже зная, к чему
+		// его вести. Если перемешать, образец превращается в ещё один
+		// набор кадров непонятно чего.
+		const sample = await referenceFrames().catch(() => []);
+
+		const content = [];
+
+		if (sample.length) {
+			content.push({
 				type: 'text',
-				text: frames.length
-					? `Кадры из ролика — на ${frames.map((f) => f.at).join(', ')} секунде ` +
-						`соответственно.\n\n${task}`
-					: task,
-			},
-		];
+				text:
+					`Сначала ${sample.length} кадра из эталонного ролика — того, ` +
+					`на уровень которого мы равняемся. Разбор этих кадров есть ` +
+					`в твоих правилах, в разделе про эталон.`,
+			});
+			for (const data of sample) {
+				content.push({
+					type: 'image',
+					source: {type: 'base64', media_type: 'image/jpeg', data},
+				});
+			}
+		}
+
+		if (frames.length) {
+			content.push({
+				type: 'text',
+				text:
+					`А это кадры ролика, который монтируешь ты — на ` +
+					`${frames.map((f) => f.at).join(', ')} секунде соответственно.`,
+			});
+			for (const frame of frames) {
+				content.push({
+					type: 'image',
+					source: {type: 'base64', media_type: 'image/jpeg', data: frame.base64},
+				});
+			}
+		}
+
+		content.push({type: 'text', text: task});
 
 		const answer = await client.messages.create({
 			model: config.anthropic.model,
