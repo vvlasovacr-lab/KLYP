@@ -20,6 +20,36 @@ const MAX_SECONDS = 4.5;
 
 const ENDING = /[.!?…]$/;
 
+// ВЫДУМАННЫЕ РЕПЛИКИ.
+//
+// На музыке, шуме и тишине распознавание не молчит — оно подставляет то,
+// что чаще всего встречалось в обучении. В русских роликах это подписи
+// переводчиков и концовки с ютуба: «Субтитры сделал DimaTorzok»,
+// «Редактор субтитров А.Синецкая», «Спасибо за просмотр». Человек их не
+// говорил, но в расшифровку они попадают как настоящая речь — и дальше
+// уезжают в субтитры готового ролика.
+//
+// Ловится это надёжно: набор фраз небольшой и повторяется дословно.
+// Проверяем всю реплику целиком, а не отдельные слова, — «субтитры» само
+// по себе слово нормальное, и вырезать его везде нельзя.
+const INVENTED = [
+	/^субтитры\b.*(сделал|делал|создавал|подготовил)/i,
+	/dimatorzok/i,
+	/^(редактор|корректор)\s+субтитров/i,
+	/^субтитры\s+(и\s+)?перевод/i,
+	/amara\.org/i,
+	/^(спасибо за просмотр|продолжение следует|подписывайтесь на канал)/i,
+	/^(thanks for watching|subtitles by|please subscribe)/i,
+	/^музыка$/i,
+	/^\(?(музыка|аплодисменты|смех)\)?[.!]?$/i,
+];
+
+const invented = (text) => {
+	const line = String(text ?? '').trim();
+	if (!line) return true;
+	return INVENTED.some((rule) => rule.test(line));
+};
+
 const split = (chunks) => {
 	const out = [];
 
@@ -71,7 +101,20 @@ export const shape = (scenes, duration) => ({
 export const listen = async (file) => {
 	const heard = await transcribe(file);
 
-	const scenes = split(heard.chunks ?? []).map((scene) => ({
+	const all = split(heard.chunks ?? []);
+
+	// Выдуманное убираем до всего остального: иначе оно уедет и в
+	// расшифровку на вычитку, и в субтитры, и в заголовок.
+	const real = all.filter(
+		(scene) => !invented(scene.words.map((w) => w.text).join(' '))
+	);
+
+	const dropped = all.length - real.length;
+	if (dropped) {
+		console.log(`  распознавание: убрано выдуманных реплик ${dropped} из ${all.length}`);
+	}
+
+	const scenes = real.map((scene) => ({
 		start: scene.start,
 		end: scene.end,
 		type: scene.type,

@@ -50,7 +50,10 @@ export const Statement = ({card, time, look}) => {
 	return (
 		<AbsoluteFill
 			style={{
-				backgroundColor: look?.palette.card ?? STATEMENT.bg,
+				// Цвет заливки берём из палитры ролика, а не из кода.
+			// Красная карточка посреди холодного разбора выглядит
+			// чужой — она кричит там, где кричать не просили.
+			backgroundColor: look?.palette.badge ?? STATEMENT.bg,
 				opacity: on,
 				display: 'flex',
 				alignItems: 'center',
