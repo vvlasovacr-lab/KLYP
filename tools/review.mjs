@@ -92,17 +92,77 @@ try {
 	await addCredits(user.id, 5, 'Тестовый пакет');
 	pass('начислено 5 роликов');
 
+	// ═══ 0. ПОЛЯ СХОДЯТСЯ ═══
+	//
+	// Приложение шлёт поля в теле запроса, сервер переносит их по списку.
+	// Забыть поле в списке — тихая поломка: клиент его отправляет, сервер
+	// выбрасывает, и всё работает так, будто человек ничего не просил.
+	// Именно так пропала вычитка расшифровки. Сверяем автоматически.
+	say('\n═══ 0. ПОЛЯ ПРИЛОЖЕНИЯ И СЕРВЕРА ═══');
+
+	const appText = await fs.readFile(`${ROOT}/miniapp/index.html`, 'utf8');
+	const apiText = await fs.readFile(`${ROOT}/server/api.js`, 'utf8');
+
+	const body = appText.slice(
+		appText.indexOf('uploadIds: ids.slice'),
+		appText.indexOf('})\n      });', appText.indexOf('uploadIds: ids.slice'))
+	);
+	const sent = [...body.matchAll(/^\s{10}([a-zA-Z]+):/gm)].map((m) => m[1]);
+
+	const listed = apiText
+		.slice(apiText.indexOf("for (const key of ["), apiText.indexOf('])', apiText.indexOf("for (const key of [")))
+		.match(/'[a-zA-Z]+'/g)
+		?.map((s) => s.replace(/'/g, '')) ?? [];
+
+	// Три поля обрабатываются отдельно: это не текст, а ключи загрузок.
+	const own = ['uploadIds', 'clipIds', 'musicId'];
+	const lost = sent.filter((k) => !own.includes(k) && !listed.includes(k));
+
+	sent.length && !lost.length
+		? pass('все поля приложения принимаются сервером', sent.join(', '))
+		: fail('поля разошлись', lost.length ? `сервер выбросит: ${lost.join(', ')}` : 'не смог разобрать');
+
 	// ═══ 1. ЗАГРУЗКА БЕЗ СПИСАНИЯ ═══
 	say('\n═══ 1. ЗАГРУЗКА НА ПРОСЛУШИВАНИЕ ═══');
 
-	const form = new FormData();
-	for (const [k, v] of Object.entries({
-		title: 'Вычитка', template: 'expose', brief: 'проверка вычитки', preview: '1', review: '1',
-	})) form.append(k, String(v));
+	// Файл шлём кусками — ровно так, как это делает приложение.
+	//
+	// Раньше здесь стоял FormData: файл целиком одним запросом. Это другой
+	// путь в сервере, и он копирует поля запроса подряд, а тот, которым
+	// ходит приложение, — по списку. Из-за этого прогон не заметил, что в
+	// списке забыли «review», и вычитка молча не работала у клиента, хотя
+	// тест был зелёный. Проверять надо тем же путём, которым ходит человек.
 	const buf = await fs.readFile('public/base.mp4');
-	form.append('file', new Blob([buf], {type: 'video/mp4'}), 'base.mp4');
 
-	const made = await call('/api/videos/create', {method: 'POST', body: form});
+	const begun = await call('/api/upload/begin', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify({name: 'base.mp4', size: buf.length}),
+	});
+	const upId = begun.json?.id;
+	upId ? pass('загрузка начата', `кусками по ${((begun.json.chunk ?? 0) / 1048576).toFixed(0)} МБ`)
+		: fail('начало загрузки', begun.text.slice(0, 160));
+
+	const chunk = begun.json?.chunk ?? 8 * 1024 * 1024;
+	for (let at = 0; at < buf.length; at += chunk) {
+		const piece = buf.subarray(at, Math.min(at + chunk, buf.length));
+		const put = await call(`/api/upload/part?id=${upId}&at=${at}`, {
+			method: 'POST',
+			headers: {'Content-Type': 'application/octet-stream'},
+			body: piece,
+		});
+		if (put.status !== 200) { fail('кусок загрузки', put.text.slice(0, 160)); break; }
+	}
+
+	const made = await call('/api/videos/create', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify({
+			uploadIds: [upId],
+			title: 'Вычитка', template: 'expose', brief: 'проверка вычитки',
+			preview: '1', review: '1',
+		}),
+	});
 	made.status === 200 && made.json?.id && made.json?.review
 		? pass('ролик принят на прослушивание', `id ${made.json.id}`)
 		: fail('загрузка', `статус ${made.status}: ${made.text.slice(0, 200)}`);

@@ -551,7 +551,16 @@ export const buildApi = async ({notify}) => {
 			ownClips = await take(req.body?.clipIds, 8);
 			ownMusic = (await take(req.body?.musicId ? [req.body.musicId] : [], 1))[0] ?? null;
 
-			for (const key of ['title', 'template', 'brief', 'reference', 'preview', 'font']) {
+			// Список полей, которые переносятся из запроса.
+			//
+			// Забыть здесь поле — тихая поломка: приложение его шлёт, сервер
+			// выбрасывает, и работает как будто его не просили. Так пропала
+			// вычитка расшифровки: файл из приложения уходит кусками и идёт
+			// этим путём, а проверялось всё вторым путём, где поля копируются
+			// подряд. Добавляешь поле в приложении — добавь и сюда.
+			for (const key of [
+				'title', 'template', 'brief', 'reference', 'preview', 'font', 'review',
+			]) {
 				if (req.body?.[key] != null) fields[key] = String(req.body[key]);
 			}
 		} else {

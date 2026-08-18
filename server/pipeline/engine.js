@@ -142,12 +142,17 @@ const fitFilter = ({size, preview, frame}) => {
 	if (!size || size.w <= size.h) return `scale=-2:${H}`;
 
 	if (frame?.fit === 'полоса') {
+		// Ленту поднимаем выше середины.
+		//
+		// По центру она ложится ровно туда, где идут субтитры, и текст
+		// садится на лицо. Сдвинутая вверх, она оставляет внизу поле под
+		// текст — он ложится на размытый фон и читается.
 		return (
 			`split[bg][fg];` +
 			`[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,` +
 			`crop=${W}:${H},boxblur=28:2[b];` +
 			`[fg]scale=${W}:-2[f];` +
-			`[b][f]overlay=(W-w)/2:(H-h)/2`
+			`[b][f]overlay=(W-w)/2:(H-h)*0.34`
 		);
 	}
 
