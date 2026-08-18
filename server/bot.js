@@ -5,18 +5,23 @@
 // Загрузка идёт через мини-апп напрямую на сервер, выдача — ссылкой.
 
 import {Bot, InlineKeyboard} from 'grammy';
-import {config} from './config.js';
+import {config, VERSION} from './config.js';
 import {one} from './db.js';
 import {
 	upsertUser, publicUser, addCredits, spendCredits,
 	findUser, userCard, serviceStats, pipelineStats, queuePeek,
 } from './users.js';
 
+// Адрес мини-аппа с номером сборки. Номер здесь не украшение: Telegram
+// кеширует страницу по адресу, и без него после выкатки в телефоне
+// открывается вчерашняя версия.
+const APP_URL = `${config.publicUrl}/app/?v=${VERSION}`;
+
 export const buildBot = () => {
 	const bot = new Bot(config.bot.token);
 
 	const openApp = () =>
-		new InlineKeyboard().webApp('Открыть студию', `${config.publicUrl}/app/`);
+		new InlineKeyboard().webApp('Открыть студию', APP_URL);
 
 	bot.command('start', async (ctx) => {
 		const payload = ctx.match?.trim() || null;
@@ -227,7 +232,7 @@ export const buildBot = () => {
 				// а минутный рилс весит больше. Отдаём ссылкой — она тянет
 				// файл любого размера и работает с перемоткой.
 				const keyboard = new InlineKeyboard()
-					.webApp('Открыть студию', `${config.publicUrl}/app/`);
+					.webApp('Открыть студию', APP_URL);
 				if (video.share_token) {
 					keyboard.row().url('Скачать ролик', `${config.publicUrl}/dl/${video.share_token}`);
 				}

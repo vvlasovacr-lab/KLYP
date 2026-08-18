@@ -1,8 +1,25 @@
+// ПЛАШКА.
+//
+// Первые секунды ролика: человек листает ленту и должен остановиться.
+// Приходит она четырьмя способами — какой взять, решает модель под
+// содержание. Раньше способ был один, и любой ролик начинался
+// одинаково, отчего лента выглядела предсказуемой.
+//
+//   по-слову  строки собираются словами на глазах
+//   целиком   появляется разом, жёстко — для дерзкого захода
+//   печать    набирается буквами
+//   выезд     выезжает сбоку одним куском
+
 import {interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 import {SAFE, TITLE} from './style.js';
 import {fitScale} from './fit.js';
+import {MANNER} from './manner.js';
 
-const Piece = ({piece, fit = 1, look}) => {
+// Скорость набора в манере «печать». Медленнее — плашка не успевает
+// дособраться до ухода; быстрее — набор не читается как набор.
+const TYPE_PER_SEC = 26;
+
+const Piece = ({piece, fit = 1, look, shown = null}) => {
 	const isBadge = piece.kind === 'badge';
 	const base = isBadge ? TITLE.badge : TITLE.big;
 
@@ -15,7 +32,10 @@ const Piece = ({piece, fit = 1, look}) => {
 			}
 		: base;
 
-	const text = cfg.uppercase ? piece.text.toUpperCase() : piece.text;
+	const full = cfg.uppercase ? String(piece.text).toUpperCase() : String(piece.text);
+	// Набор буквами режем уже после приведения регистра — иначе счёт
+	// знаков разойдётся с тем, что видно на экране.
+	const text = shown === null ? full : <Typed text={full} shown={shown} />;
 
 	return (
 		<span
@@ -43,24 +63,44 @@ const Piece = ({piece, fit = 1, look}) => {
 	);
 };
 
-// Одно слово плашки. Всплывает само по себе, со своей задержкой —
-// заголовок набирается на глазах, а не выпрыгивает готовым куском.
-const Rising = ({delay, fps, frame, children}) => {
+// Как именно кусок плашки въезжает в кадр. Пружина у каждой манеры
+// своя: мягкая для набора словами, тугая для жёсткого появления.
+const SPRING = {
+	'по-слову': {damping: 14, stiffness: 180, mass: 0.55},
+	'целиком': {damping: 30, stiffness: 420, mass: 0.5},
+	'выезд': {damping: 22, stiffness: 200, mass: 0.7},
+	'печать': {damping: 30, stiffness: 420, mass: 0.5},
+};
+
+// Одно слово плашки. Всплывает со своей задержкой — заголовок
+// набирается на глазах, а не выпрыгивает готовым куском.
+const Rising = ({delay, fps, frame, mode = 'по-слову', width = 1080, children}) => {
 	const local = frame - delay;
 	const appear = spring({
 		frame: local,
 		fps,
-		config: {damping: 14, stiffness: 180, mass: 0.55},
+		config: SPRING[mode] ?? SPRING['по-слову'],
 	});
 
 	const hidden = local < 0;
+	const at = (from, to) => (hidden ? from : interpolate(appear, [0, 1], [from, to]));
+
+	// Выезд идёт вбок и с запасом за край кадра: если начать у самой
+	// границы, движение читается как подрагивание, а не как выезд.
+	const shift =
+		mode === 'выезд'
+			? `translateX(${at(-width * 0.55, 0)}px)`
+			: `translateY(${at(mode === 'целиком' ? 0 : 26, 0)}px)`;
+
+	// Жёсткое появление приходит из чуть большего размера — так удар
+	// читается сильнее, чем при росте из маленького.
+	const scale = mode === 'целиком' ? at(1.14, 1) : mode === 'выезд' ? 1 : at(0.9, 1);
 
 	return (
 		<span
 			style={{
 				display: 'inline-block',
-				transform: `translateY(${hidden ? 26 : interpolate(appear, [0, 1], [26, 0])}px)` +
-					` scale(${hidden ? 0.9 : interpolate(appear, [0, 1], [0.9, 1])})`,
+				transform: `${shift} scale(${scale})`,
 				opacity: hidden ? 0 : appear,
 				transformOrigin: 'center bottom',
 			}}
@@ -70,28 +110,74 @@ const Rising = ({delay, fps, frame, children}) => {
 	);
 };
 
-const Line = ({line, index, fps, frame, enterFrame, fit, look, from}) => {
+// Набор буквами. Показываем столько знаков, сколько успело напечататься
+// к этому кадру, а остальное держим прозрачным — иначе строка прыгала бы
+// по ширине на каждой букве.
+const Typed = ({text, shown}) => {
+	const cut = Math.max(0, Math.min(text.length, shown));
+	return (
+		<>
+			{text.slice(0, cut)}
+			<span style={{opacity: 0}}>{text.slice(cut)}</span>
+		</>
+	);
+};
+
+const Line = ({line, index, fps, frame, enterFrame, fit, look, from, mode, width, typedFrom}) => {
 	// Слово за словом. Бейдж не дробим: у него общая подложка, и по словам
 	// она рассыпалась бы на несколько плашек.
 	let seen = from;
+	let typed = typedFrom;
+
+	// Шаг между словами есть только там, где плашка и правда собирается
+	// словами. В остальных манерах всё приходит разом.
+	const step = mode === 'по-слову' ? TITLE.wordStep : 0;
+
+	const row = {
+		marginTop: index === 0 ? 0 : TITLE.lineOverlap,
+		display: 'flex',
+		alignItems: 'center',
+		justifyContent: 'center',
+		gap: TITLE.wordGap,
+		transform: `translateX(${line.dx}px)`,
+	};
+
+	// Набор буквами: слова не дробим и не анимируем поодиночке — вместо
+	// этого показываем ровно столько знаков, сколько успело напечататься.
+	if (mode === 'печать') {
+		const done = Math.floor(((frame - enterFrame) / fps) * TYPE_PER_SEC);
+
+		return (
+			<div style={row}>
+				{line.pieces.map((piece, i) => {
+					const text = String(piece.text);
+					const shown = done - typed;
+					typed += text.length + 1;
+
+					// Место под ещё не набранное держим занятым, но невидимым:
+					// иначе строка прыгала бы по ширине на каждой букве.
+					return (
+						<Piece
+							key={i}
+							piece={piece}
+							fit={fit}
+							look={look}
+							shown={Math.max(0, shown)}
+						/>
+					);
+				})}
+			</div>
+		);
+	}
 
 	return (
-		<div
-			style={{
-				marginTop: index === 0 ? 0 : TITLE.lineOverlap,
-				display: 'flex',
-				alignItems: 'center',
-				justifyContent: 'center',
-				gap: TITLE.wordGap,
-				transform: `translateX(${line.dx}px)`,
-			}}
-		>
+		<div style={row}>
 			{line.pieces.map((piece, i) => {
 				if (piece.kind === 'badge') {
-					const delay = enterFrame + Math.round(seen * TITLE.wordStep * fps);
+					const delay = enterFrame + Math.round(seen * step * fps);
 					seen += 1;
 					return (
-						<Rising key={i} delay={delay} fps={fps} frame={frame}>
+						<Rising key={i} delay={delay} fps={fps} frame={frame} mode={mode} width={width}>
 							<Piece piece={piece} fit={fit} look={look} />
 						</Rising>
 					);
@@ -99,10 +185,17 @@ const Line = ({line, index, fps, frame, enterFrame, fit, look, from}) => {
 
 				const words = String(piece.text).split(/\s+/).filter(Boolean);
 				return words.map((word, w) => {
-					const delay = enterFrame + Math.round(seen * TITLE.wordStep * fps);
+					const delay = enterFrame + Math.round(seen * step * fps);
 					seen += 1;
 					return (
-						<Rising key={`${i}-${w}`} delay={delay} fps={fps} frame={frame}>
+						<Rising
+							key={`${i}-${w}`}
+							delay={delay}
+							fps={fps}
+							frame={frame}
+							mode={mode}
+							width={width}
+						>
 							<Piece piece={{...piece, text: word}} fit={fit} look={look} />
 						</Rising>
 					);
@@ -121,7 +214,12 @@ const wordsIn = (line) =>
 		0
 	);
 
-export const TitleCard = ({title, time, fromSeconds = 0, look}) => {
+// То же для набора буквами: следующая строка начинает печататься после
+// предыдущей. Пробел между кусками тоже занимает свой такт.
+const charsIn = (line) =>
+	line.pieces.reduce((n, piece) => n + String(piece.text).length + 1, 0);
+
+export const TitleCard = ({title, time, fromSeconds = 0, look, manner}) => {
 	const T = title ?? TITLE;
 	const frame = useCurrentFrame();
 	const {fps, width, height} = useVideoConfig();
@@ -177,8 +275,11 @@ export const TitleCard = ({title, time, fromSeconds = 0, look}) => {
 					frame={frame}
 					fit={fit}
 					look={look}
+					mode={manner?.titleIn ?? MANNER.titleIn}
+					width={width}
 					enterFrame={Math.round((T.in - fromSeconds) * fps)}
 					from={T.lines.slice(0, i).reduce((n, l) => n + wordsIn(l), 0)}
+					typedFrom={T.lines.slice(0, i).reduce((n, l) => n + charsIn(l), 0)}
 				/>
 			))}
 		</div>

@@ -11,6 +11,7 @@
 
 import {pickLook, fingerprint, PALETTES, LAYOUTS, FONTS} from './looks.js';
 import {checkSafeArea, fitTitle} from './safety.js';
+import {toManner, PACE} from './manner.js';
 
 // ── что считать акцентом ──────────────────────────────────────
 // Движок помечает важные слова ролью emphasis и даёт им категорию:
@@ -177,7 +178,7 @@ const accentsFromModel = (chunks, marks, gap) => {
 // Движок ставит всего пару движений камеры за ролик — под наш референс
 // этого мало. Берём его метки как обязательные и достраиваем ритм:
 // склейка на каждом акценте и через равные промежутки в тишине.
-const toCuts = ({engine, accents, broll, duration, gap}) => {
+const toCuts = ({engine, accents, broll, duration, gap, uneven = 0}) => {
 	const marks = new Map();
 	const put = (t, kind) => {
 		const key = Number(t.toFixed(2));
@@ -195,10 +196,17 @@ const toCuts = ({engine, accents, broll, duration, gap}) => {
 	for (const event of engine.camera ?? []) put(Number(event.time), 'accent');
 	for (const [from] of accents) put(from, 'accent');
 
-	// ритмические метки там, где долго ничего не происходит
+	// Ритмические метки там, где долго ничего не происходит.
+	//
+	// Рваный темп означает неравные промежутки: длинный план, потом
+	// очередь коротких. Разброс берём не случайный, а от самого времени —
+	// иначе один и тот же ролик пересобирался бы каждый раз по-другому,
+	// и правка меняла бы то, к чему претензий не было.
 	const busy = (t) => [...marks.keys()].some((m) => Math.abs(m - t) < gap * 0.7);
-	for (let t = gap; t < duration - 0.6; t += gap) {
+	let step = gap;
+	for (let t = gap, i = 0; t < duration - 0.6; t += step, i++) {
 		if (!busy(t)) put(t, 'base');
+		step = uneven ? gap * (1 + uneven * (i % 3 === 0 ? 1 : -0.45)) : gap;
 	}
 
 	return [...marks.entries()]
@@ -637,16 +645,27 @@ export const fromEngine = (montage, {template = 'expose', font = null, director 
 	// модель — она видит, чем начинается речь.
 	if (director?.opening === 'сразу') title = null;
 
-	const cutGap = look.cutGap;
+	// Почерк этого ролика: как ведёт себя текст, в каком темпе идут
+	// склейки, насколько громко оформление. Выбирает модель — без неё
+	// берётся то, как было всегда.
+	const manner = toManner(director?.manner);
+	const tempo = PACE[manner.pace] ?? PACE['ровно'];
+
+	// Жанр говорит о плотности вообще, темп — об этом ролике. Поэтому
+	// множитель идёт к промежутку, заданному жанром, а не заменяет его.
+	const cutGap = look.cutGap * tempo.cut;
 
 	const plan = {
 		accents,
 		broll,
 		shouts: toShouts(chunks, duration),
-		cuts: toCuts({engine, accents, broll, duration, gap: cutGap}),
+		cuts: toCuts({engine, accents, broll, duration, gap: cutGap, uneven: tempo.uneven}),
 		title,
 		// палитра, раскладка и шрифт этого ролика
 		look,
+		manner,
+		// насколько сильно дышит кадр между склейками
+		tempo,
 		face: engine.face ?? null,
 	};
 

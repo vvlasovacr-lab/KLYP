@@ -12,7 +12,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {q, one, many} from './db.js';
 import {config} from './config.js';
-import {runEngine, prepare, cleanupEngineRun} from './pipeline/engine.js';
+import {runEngine, prepare, cleanupEngineRun, cleanupStaged} from './pipeline/engine.js';
 import {addCredits} from './users.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,6 +43,11 @@ const collectResult = async ({video, run}) => {
 
 	const sourceBytes = await sizeOf(video.source_path);
 	await cleanupEngineRun(run.dir);
+
+	// Прокси, свои врезки и музыка лежат в public — Remotion читает только
+	// оттуда. Ролик готов, и держать их дальше незачем.
+	const freed = await cleanupStaged(video.id);
+	if (freed > 1048576) console.log(`  ролик ${video.id} · освобождено ${mb(freed)} после рендера`);
 
 	return {outFile, poster, sourceBytes};
 };
@@ -384,6 +389,7 @@ const tick = async () => {
 		const dir = path.join(config.storage.root, 'engine', String(job.video_id));
 		await keepLog(dir, job.video_id).catch(() => {});
 		await cleanupEngineRun(dir).catch(() => {});
+		await cleanupStaged(job.video_id).catch(() => {});
 		running--;
 	}
 };
@@ -541,6 +547,28 @@ const freeUpSpace = async () => {
 	return dropped;
 };
 
+// Забытые прокси в public. Лежат не на томе, а в файловой системе
+// контейнера, где места меньше всего, — поэтому подметаем их отдельно
+// и по времени, а не по состоянию ролика в базе.
+const STAGED_HOURS = 6;
+
+const sweepStaged = async () => {
+	const dir = path.join(ROOT, 'public', 'uploads');
+	const files = await fs.readdir(dir).catch(() => []);
+	const old = Date.now() - STAGED_HOURS * 3600_000;
+	let gone = 0;
+
+	for (const name of files) {
+		const file = path.join(dir, name);
+		const stat = await fs.stat(file).catch(() => null);
+		if (!stat?.isFile() || stat.mtimeMs > old) continue;
+		await fs.rm(file, {force: true}).catch(() => {});
+		gone++;
+	}
+
+	return gone;
+};
+
 export const sweepStorage = async () => {
 	const keepSource = Math.max(0, config.storage.sourceKeepDays);
 	const engineDirs = await sweepEngineDirs();
@@ -575,6 +603,12 @@ export const sweepStorage = async () => {
 	);
 	for (const video of outputs) await dropOutput(video);
 
+	// Прокси, оставшиеся от прерванных рендеров. Обычно их убирает сам
+	// воркер, но контейнер может умереть посреди работы — тогда файл
+	// останется навсегда. Рендер не длится и часа, поэтому всё, что
+	// старше шести, — заведомо мусор.
+	const stagedLeft = await sweepStaged();
+
 	// Расшифровка, к которой никто не вернулся. Человек загрузил ролик,
 	// увидел текст и закрыл приложение — ролик из пакета не списан, а
 	// исходник лежит и занимает место. Через сутки убираем файл, карточку
@@ -591,10 +625,11 @@ export const sweepStorage = async () => {
 	// нет прямо сейчас, сносим самое старое, не дожидаясь срока.
 	const forced = await freeUpSpace();
 
-	if (sources.length || outputs.length || engineDirs || forced || halfDone || abandoned.length) {
+	if (sources.length || outputs.length || engineDirs || forced || halfDone || abandoned.length || stagedLeft) {
 		console.log(
 			`  уборка: исходников ${sources.length}, просроченных роликов ${outputs.length},` +
 			` рабочих папок ${engineDirs}` +
+			(stagedLeft ? `, забытых прокси ${stagedLeft}` : '') +
 			(abandoned.length ? `, брошенных расшифровок ${abandoned.length}` : '') +
 			(halfDone ? `, брошенных загрузок ${halfDone}` : '') +
 			(forced ? `, аварийно ${forced}` : '')

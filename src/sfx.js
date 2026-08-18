@@ -17,29 +17,39 @@ export const SFX = {
 };
 
 // Строит дорожку призвуков из монтажного плана.
-export const buildCues = ({broll = [], accents = [], shouts = []}) => {
+// Сколько звуковых акцентов ставить. Решает модель: чем серьёзнее тема,
+// тем тише оформление — свист на каждом слове в разговоре о деньгах
+// клиента выглядит несерьёзно. При «тихо» тики на акцентах пропадают
+// совсем, а пролёты становятся заметно тише: это не «чуть меньше», а
+// другая подача.
+export const buildCues = ({broll = [], accents = [], shouts = [], sound = 1}) => {
 	const cues = [];
+	const loud = Number.isFinite(sound) ? Math.max(0, sound) : 1;
+	const quiet = loud < 0.6;
 
 	broll.forEach((shot, i) => {
 		// вход в перебивку — один пролёт, тон чередуется через раз
 		cues.push({
 			at: shot.from,
 			name: i % 2 === 0 ? 'whoosh-hi' : 'whoosh-lo',
-			volume: 0.7,
+			volume: 0.7 * loud,
 		});
 		// возврат на лицо — нарастающий, тише
-		cues.push({at: shot.to - 0.22, name: 'whoosh-back', volume: 0.42});
+		cues.push({at: shot.to - 0.22, name: 'whoosh-back', volume: 0.42 * loud});
 	});
 
-	// наезд камеры на акцентном слове
-	accents.forEach(([start], i) => {
-		cues.push({at: start, name: i % 2 === 0 ? 'tick-a' : 'tick-b', volume: 0.3});
-	});
+	// Наезд камеры на акцентном слове. В тихой подаче тиков нет вовсе:
+	// они самые частые, и именно от них монтаж звучит суетливо.
+	if (!quiet) {
+		accents.forEach(([start], i) => {
+			cues.push({at: start, name: i % 2 === 0 ? 'tick-a' : 'tick-b', volume: 0.3 * loud});
+		});
+	}
 
 	// выкрик — единственное место, где бьёт низкий удар
 	for (const shout of shouts) {
-		cues.push({at: shout.from, name: 'pop', volume: 0.6});
-		cues.push({at: shout.from + 0.02, name: 'impact', volume: 0.5});
+		cues.push({at: shout.from, name: 'pop', volume: 0.6 * loud});
+		cues.push({at: shout.from + 0.02, name: 'impact', volume: 0.5 * loud});
 	}
 
 	// прореживаем: если два звука сошлись слишком близко, тихий уступает

@@ -30,6 +30,25 @@ export const probeDuration = async (file) => {
 	return Number(String(stdout).trim()) || 0;
 };
 
+// Размер кадра исходника. Нужен, чтобы понять, горизонтальное видео нам
+// принесли или вертикальное: горизонтальное само в вертикальный кадр не
+// ляжет, его надо кадрировать осмысленно, а не резать по центру.
+export const probeSize = async (file) => {
+	try {
+		const {stdout} = await run('ffprobe', [
+			'-v', 'error',
+			'-select_streams', 'v:0',
+			'-show_entries', 'stream=width,height',
+			'-of', 'csv=p=0:s=x',
+			file,
+		]);
+		const [w, h] = String(stdout).trim().split('x').map(Number);
+		return w > 0 && h > 0 ? {w, h} : null;
+	} catch {
+		return null;
+	}
+};
+
 // ── подготовка аудио ──────────────────────────────────────────
 // Видео весит десятки мегабайт, а у распознавания лимит на размер
 // запроса. Вытаскиваем моно-дорожку 16 кГц в mp3: часовая запись

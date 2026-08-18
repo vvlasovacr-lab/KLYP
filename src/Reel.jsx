@@ -20,9 +20,10 @@ import {retime} from './retime.js';
 import {readPlan} from './timeline.js';
 import {CAMERA, CARD, CUT, TITLE} from './style.js';
 import {SFX, buildCues} from './sfx.js';
+import {MANNER, PACE, SOUND} from './manner.js';
 
 // рывок кадра, вспышка и расфокус на стыке
-const useCutEffect = (time, cutAt) => {
+const useCutEffect = (time, cutAt, force = 1) => {
 	const {fps} = useVideoConfig();
 	if (!CUT.on) return {punch: 1, flash: 0, tint: CUT.base, blur: 0};
 
@@ -32,7 +33,7 @@ const useCutEffect = (time, cutAt) => {
 
 	const punch =
 		since < CUT.punchFrames
-			? interpolate(since, [0, CUT.punchFrames], [1 + CUT.punch, 1], {
+			? interpolate(since, [0, CUT.punchFrames], [1 + CUT.punch * force, 1], {
 					easing: Easing.out(Easing.cubic),
 					extrapolateRight: 'clamp',
 				})
@@ -60,7 +61,7 @@ const useCutEffect = (time, cutAt) => {
 };
 
 // медленный дрейф на всю длину + короткий наезд на каждом акценте
-const useCameraZoom = (time, fromSeconds, accentStarts) => {
+const useCameraZoom = (time, fromSeconds, accentStarts, force = 1) => {
 	const frame = useCurrentFrame();
 	const {fps, durationInFrames} = useVideoConfig();
 
@@ -78,7 +79,7 @@ const useCameraZoom = (time, fromSeconds, accentStarts) => {
 		fps,
 		config: {damping: 18, stiffness: 90, mass: 0.9},
 	});
-	const punch = last === undefined ? 0 : CAMERA.punch * (1 - settle);
+	const punch = last === undefined ? 0 : CAMERA.punch * force * (1 - settle);
 
 	return CAMERA.on ? 1 + drift + punch : 1;
 };
@@ -157,11 +158,21 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 	// Разметка приходит извне: у каждого ролика она своя.
 	// Без плана берётся образцовая — так студия открывается как раньше.
 	const tl = useMemo(() => readPlan(plan), [plan]);
-	const cues = useMemo(() => buildCues(tl.raw), [tl]);
+
+	// Почерк этого ролика: манера субтитров, приход плашки, темп, вход
+	// врезок, плотность звука. Приходит из плана — выбирать его здесь
+	// нельзя, рендер обязан быть повторяемым.
+	const manner = plan?.manner ?? MANNER;
+	const tempo = plan?.tempo ?? PACE[manner.pace] ?? PACE['ровно'];
+
+	const cues = useMemo(
+		() => buildCues({...tl.raw, sound: SOUND[manner.sound] ?? 1}),
+		[tl, manner.sound]
+	);
 
 	const time = fromSeconds + frame / fps;
-	const zoom = useCameraZoom(time, fromSeconds, tl.accentStarts);
-	const {punch, flash, tint, blur} = useCutEffect(time, tl.cutAt);
+	const zoom = useCameraZoom(time, fromSeconds, tl.accentStarts, tempo.zoom);
+	const {punch, flash, tint, blur} = useCutEffect(time, tl.cutAt, tempo.punch);
 
 	// Реплики от движка уже разбиты по смыслу и проверены на слепые зоны —
 	// пересобирать их своим ретаймом значило бы ломать чужую работу.
@@ -253,7 +264,7 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 					</AbsoluteFill>
 				</Sequence>
 			) : broll?.card ? (
-				<BrollCard shot={broll} time={time} fromSeconds={fromSeconds} />
+				<BrollCard shot={broll} time={time} fromSeconds={fromSeconds} manner={manner} />
 			) : null}
 
 			{flash > 0 ? (
@@ -283,7 +294,7 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 
 			{/* плашка и выкрик перебивают обычные титры — иначе текст дублируется */}
 			{titleOnScreen ? (
-				<TitleCard title={title} time={time} fromSeconds={fromSeconds} look={look} />
+				<TitleCard title={title} time={time} fromSeconds={fromSeconds} look={look} manner={manner} />
 			) : shout ? (
 				<Shout shout={shout} fromSeconds={fromSeconds} look={look} />
 			) : (
@@ -295,6 +306,7 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 					onCard={Boolean(tl.brollAt)}
 					brollAt={tl.brollAt}
 					look={look}
+					manner={manner}
 				/>
 			)}
 		</AbsoluteFill>

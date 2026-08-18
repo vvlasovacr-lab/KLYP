@@ -234,10 +234,26 @@ const Tags = ({card, enterFrame}) => {
 	);
 };
 
-export const BrollCard = ({shot, time, fromSeconds}) => {
-	const {fps} = useVideoConfig();
+// Как врезка входит в кадр. Раньше вход был один на все ролики, и
+// серьёзный разбор получал ту же расфокусировку, что дерзкий монтаж.
+//
+//   резко        мгновенно, без проявления — рубленый стык
+//   свистом      влетает сбоку под звук пролёта
+//   наплывом     выплывает из расфокуса, мягко
+//   стоп-кадром  щёлкает, чуть увеличенная, и замирает
+const ENTRY = {
+	'резко': {fade: 0.04, blur: 0, slide: 0, from: 1},
+	'свистом': {fade: 0.1, blur: 0.35, slide: 0.5, from: 1},
+	'наплывом': {fade: 1, blur: 1, slide: 0, from: 1},
+	'стоп-кадром': {fade: 0.06, blur: 0, slide: 0, from: 1.08},
+};
+
+export const BrollCard = ({shot, time, fromSeconds, manner}) => {
+	const {fps, width} = useVideoConfig();
 	const enterFrame = Math.round((shot.from - fromSeconds) * fps);
 	const card = shot.card;
+
+	const entry = ENTRY[manner?.brollIn] ?? ENTRY['наплывом'];
 
 	// фон медленно наезжает, чтобы врезка не выглядела картинкой
 	const progress = interpolate(time, [shot.from, shot.to], [0, 1], {
@@ -245,9 +261,12 @@ export const BrollCard = ({shot, time, fromSeconds}) => {
 		extrapolateRight: 'clamp',
 	});
 
-	// врезка проявляется и уходит мягко — резкий стык читается как ошибка
+	// Насколько мягко приходит — задаёт манера. При резком входе окно
+	// проявления почти нулевое, и стык читается как рубленая склейка.
+	const fadeIn = Math.max(0.02, CARD.fadeIn * entry.fade);
+
 	const fade = Math.min(
-		interpolate(time, [shot.from, shot.from + CARD.fadeIn], [0, 1], {
+		interpolate(time, [shot.from, shot.from + fadeIn], [0, 1], {
 			extrapolateLeft: 'clamp',
 			extrapolateRight: 'clamp',
 		}),
@@ -258,17 +277,28 @@ export const BrollCard = ({shot, time, fromSeconds}) => {
 	);
 
 	// врезка выплывает из расфокуса — тот же приём, что на склейке
-	const focus = interpolate(time, [shot.from, shot.from + CARD.fadeIn], [1, 0], {
+	const focus = interpolate(time, [shot.from, shot.from + fadeIn], [1, 0], {
 		extrapolateLeft: 'clamp',
 		extrapolateRight: 'clamp',
 	});
+
+	// Влёт сбоку и щелчок стоп-кадра. Оба движения короткие: на врезке
+	// в полторы секунды длинный заход съедает саму картинку.
+	const slide = entry.slide
+		? interpolate(focus, [0, 1], [0, width * 0.22 * entry.slide])
+		: 0;
+	const pop = entry.from !== 1 ? interpolate(focus, [0, 1], [1, entry.from]) : 1;
 
 	return (
 		<AbsoluteFill
 			style={{
 				overflow: 'hidden',
 				opacity: fade,
-				filter: focus > 0.01 ? `blur(${focus * CARD.blurIn}px)` : 'none',
+				transform: slide || pop !== 1 ? `translateX(${slide}px) scale(${pop})` : undefined,
+				filter:
+					entry.blur && focus > 0.01
+						? `blur(${focus * CARD.blurIn * entry.blur}px)`
+						: 'none',
 			}}
 		>
 			<AbsoluteFill

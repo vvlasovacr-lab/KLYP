@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import fstatic from '@fastify/static';
 
-import {config, hasLava} from './config.js';
+import {config, hasLava, VERSION} from './config.js';
 import {q, one, many, tx} from './db.js';
 import {parseInitData, REJECTS} from './auth.js';
 import {
@@ -25,20 +25,6 @@ import {startPayment, applyWebhook, verifyWebhook} from './lava.js';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
-// НОМЕР СБОРКИ.
-//
-// Telegram кеширует мини-апп у себя, и после выкатки в телефоне может
-// открыться вчерашняя страница. Снаружи это выглядит так, будто новая
-// работа не сделана. Номер коммита виден в приложении — сверяешь его
-// и сразу знаешь, что перед тобой.
-//
-// Railway кладёт хеш коммита в окружение сам; локально его нет, и тогда
-// показываем время запуска.
-const VERSION = (
-	process.env.RAILWAY_GIT_COMMIT_SHA ??
-	process.env.SOURCE_COMMIT ??
-	''
-).slice(0, 7) || new Date().toISOString().slice(5, 16).replace('T', ' ');
 
 // ── защита от двойного запуска ────────────────────────────────
 // Два уровня. Первый — ключ идемпотентности от клиента: повторная
@@ -811,6 +797,20 @@ export const buildApi = async ({notify}) => {
 		const cost = video.preview_only ? config.render.previewCost : 1;
 
 		const result = await tx(async (client) => {
+			// Ролик берём под замок ПЕРЕД списанием.
+			//
+			// Без этого двойной тап по кнопке проходил дважды: обе попытки
+			// успевали прочитать статус «listened» снаружи транзакции, обе
+			// списывали по ролику из пакета и обе ставили задачу в очередь.
+			// Человек платил вдвое и получал два одинаковых ролика.
+			const {rows} = await client.query(
+				'SELECT status FROM videos WHERE id = $1 FOR UPDATE',
+				[video.id]
+			);
+			if (rows[0]?.status !== 'listened') {
+				return {error: 'Этот ролик уже в монтаже', code: 409, already: true};
+			}
+
 			// Ещё раз под замком: между вычиткой и запуском человек мог
 			// потратить пакет в другом окне.
 			const spent = await spendCreditsIn(
@@ -820,13 +820,18 @@ export const buildApi = async ({notify}) => {
 
 			await client.query(
 				`UPDATE videos SET status = 'queued', transcript = $2, cost = $3, updated_at = NOW()
-				 WHERE id = $1 AND status = 'listened'`,
+				 WHERE id = $1`,
 				[video.id, JSON.stringify({...video.transcript, scenes: fixed}), cost]
 			);
 			await client.query('INSERT INTO jobs (video_id) VALUES ($1)', [video.id]);
 			return {credits: spent.credits};
 		});
 
+		// Второй тап той же кнопки — не ошибка для человека: ролик уже
+		// в работе, и ему надо показать это, а не красную плашку.
+		if (result.already) {
+			return {ok: true, id: Number(video.id), duplicate: true};
+		}
 		if (result.error) return reply.code(result.code).send({error: result.error});
 
 		const changed = [...edits.keys()].filter((i) => scenes[i]).length;
@@ -885,6 +890,23 @@ export const buildApi = async ({notify}) => {
 		let result;
 		try {
 			result = await tx(async (client) => {
+				// Родителя берём под замок и ещё раз смотрим, нет ли у него
+				// правки в работе. Проверка снаружи транзакции ловит только
+				// разнесённые во времени нажатия: два запроса, пришедшие в
+				// одну секунду, проскакивали оба — списывалось два ролика и
+				// собиралось два одинаковых.
+				await client.query('SELECT id FROM videos WHERE id = $1 FOR UPDATE', [src.id]);
+
+				const {rows: busy} = await client.query(
+					`SELECT id FROM videos
+					 WHERE parent_id = $1 AND status IN ('queued','running','listening','listened')
+					 LIMIT 1`,
+					[src.id]
+				);
+				if (busy[0]) {
+					return {error: 'Правка этого ролика уже собирается — дождись её.', code: 409, busy: Number(busy[0].id)};
+				}
+
 				const spent = await spendCreditsIn(client, user.id, 1, 'Правка ролика', String(src.id));
 				if (!spent.ok) return {error: spent.reason, code: 402};
 
@@ -915,6 +937,9 @@ export const buildApi = async ({notify}) => {
 			throw err;
 		}
 
+		if (result.busy) {
+			return reply.code(409).send({error: result.error, id: result.busy, duplicate: true});
+		}
 		if (result.error) return reply.code(result.code).send({error: result.error});
 		return {ok: true, id: result.id, credits: result.credits};
 	});

@@ -22,6 +22,7 @@ import {config, hasSpeech} from './../config.js';
 import {direct} from './director.js';
 import {listen, shape} from './listen.js';
 import {eyes} from './frames.js';
+import {probeSize} from './transcribe.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -121,15 +122,58 @@ const trimPauses = async (from, to) => {
 	return {cut, pauses: parts.length};
 };
 
-const makeProxy = ({source, target, preview}) =>
+// КАК УЛОЖИТЬ ИСХОДНИК В ВЕРТИКАЛЬНЫЙ КАДР.
+//
+// Вертикальное видео ложится само. Горизонтальное — нет: девять
+// шестнадцатых кадра придётся выбросить, и вопрос только в том, какие.
+// Раньше мы резали по центру, и если человек сидел сбоку, ему срезало
+// половину лица.
+//
+// Теперь решает модель — она видит кадры. «кроп» с точкой внимания
+// оставляет ту часть кадра, где человек. «полоса» вписывает всю ширину
+// целиком, а сверху и снизу кладёт размытую копию: так делают, когда в
+// кадре важно всё — доска, экран, несколько человек.
+const fitFilter = ({size, preview, frame}) => {
+	const H = preview ? 960 : 1920;
+	const W = Math.round((H * 9) / 16 / 2) * 2;
+
+	// Вертикальный или квадратный исходник: по высоте, остальное
+	// подрежет сам плеер. Так было всегда, и трогать это незачем.
+	if (!size || size.w <= size.h) return `scale=-2:${H}`;
+
+	if (frame?.fit === 'полоса') {
+		return (
+			`split[bg][fg];` +
+			`[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,` +
+			`crop=${W}:${H},boxblur=28:2[b];` +
+			`[fg]scale=${W}:-2[f];` +
+			`[b][f]overlay=(W-w)/2:(H-h)/2`
+		);
+	}
+
+	// Точка внимания — это место в кадре, а не доля лишней ширины:
+	// модели сказано «0 — у левого края, 1 — у правого», и считать надо
+	// ровно так же, иначе она метит в человека, а окно уезжает мимо.
+	//
+	// Ставим окно центром на эту точку и прижимаем к границам кадра.
+	const focus = Math.min(1, Math.max(0, Number(frame?.focus ?? 0.5)));
+	const cropW = Math.round((size.h * 9) / 16 / 2) * 2;
+	const x = Math.round(
+		Math.min(Math.max(focus * size.w - cropW / 2, 0), size.w - cropW)
+	);
+
+	return `crop=${cropW}:${size.h}:${x}:0,scale=${W}:${H}`;
+};
+
+const makeProxy = ({source, target, preview, size = null, frame = null}) =>
 	new Promise((resolve, reject) => {
 		// Черновик всё равно уедет в 486×864 — незачем таскать полный кадр
-		const scale = preview ? 'scale=-2:960' : 'scale=-2:1920';
+		const scale = fitFilter({size, preview, frame});
 
 		const ff = spawn('ffmpeg', [
 			'-v', 'error', '-y',
 			'-i', source,
-			'-vf', scale,
+			...(scale.includes(';') ? ['-filter_complex', scale] : ['-vf', scale]),
 			'-c:v', 'libx264',
 			'-preset', 'ultrafast',
 			// каждый кадр ключевой: декодер не ищет опорные и не ждёт
@@ -159,7 +203,10 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 	await fs.mkdir(uploads, {recursive: true});
 
 	const staged = path.join(uploads, `${video.id}.mp4`);
-	await makeProxy({source, target: staged, preview: video.preview_only});
+
+	// Размер исходника нужен до всего остального: от него зависит, надо
+	// ли вообще спрашивать модель, как кадрировать.
+	const size = await probeSize(source);
 
 	const outDir = path.join(dir, 'output');
 	await fs.mkdir(outDir, {recursive: true});
@@ -201,6 +248,23 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		previous,
 		brief: video.brief ?? '',
 		frames: seen,
+		size,
+	});
+
+	// Кадрируем после ответа модели: она посмотрела на кадры и сказала,
+	// где в горизонтальном ролике человек. Для вертикального исходника
+	// это ничего не меняет.
+	const wide = size && size.w > size.h;
+	if (wide) {
+		const frame = director?.frame ?? {fit: 'кроп', focus: 0.5};
+		console.log(
+			`  кадр: исходник ${size.w}×${size.h} горизонтальный` +
+			` · ${frame.fit}${frame.fit === 'кроп' ? ` от ${frame.focus}` : ''}`
+		);
+	}
+	await makeProxy({
+		source, target: staged, preview: video.preview_only,
+		size, frame: director?.frame ?? null,
 	});
 
 	if (director) {
@@ -507,6 +571,35 @@ export const runEngine = async ({video, onProgress, onStage}) => {
 // Рабочая папка заказа после переноса результата не нужна.
 export const cleanupEngineRun = async (dir) => {
 	await fs.rm(dir, {recursive: true, force: true}).catch(() => {});
+};
+
+// ЧТО РЕНДЕР ОСТАВЛЯЕТ ПОСЛЕ СЕБЯ.
+//
+// Remotion читает медиа только из public, поэтому перед каждым рендером
+// туда кладётся прокси исходника, свои врезки клиента и его музыка. На
+// трёхминутный ролик это под сотню мегабайт.
+//
+// Убирать их было некому: рабочая папка заказа сносилась, а эти файлы
+// оставались навсегда. Один человек этого не замечает, на потоке — это
+// десятки гигабайт за сутки, и сервис умирает без места. Причём лежат
+// они не на томе, а в файловой системе контейнера, где места меньше
+// всего.
+export const cleanupStaged = async (videoId) => {
+	const dir = path.join(ROOT, 'public', 'uploads');
+	const mine = new RegExp(`^(${videoId}\\.|clip-${videoId}-|music-${videoId}\\.)`);
+
+	const files = await fs.readdir(dir).catch(() => []);
+	let freed = 0;
+
+	for (const name of files) {
+		if (!mine.test(name)) continue;
+		const file = path.join(dir, name);
+		const size = await sizeOf(file);
+		await fs.rm(file, {force: true}).catch(() => {});
+		freed += size ?? 0;
+	}
+
+	return freed;
 };
 
 const exists = async (file) => {
