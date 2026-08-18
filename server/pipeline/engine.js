@@ -20,7 +20,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {config, hasSpeech} from './../config.js';
 import {direct} from './director.js';
-import {listen} from './listen.js';
+import {listen, shape} from './listen.js';
 import {eyes} from './frames.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -353,28 +353,31 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 	return outFile;
 };
 
-export const runEngine = async ({video, onProgress, onStage}) => {
+// ПЕРВЫЙ ШАГ: СЛУШАЕМ.
+//
+// Раньше загрузка, распознавание и монтаж шли одним куском, и клиент
+// видел текст только внутри готового ролика — вместе со всеми ошибками
+// распознавания. Починить одно слово стоило ещё одного ролика из пакета.
+//
+// Теперь ролик сначала слушается, текст показывается человеку, и только
+// после его подтверждения начинается монтаж. Здесь — первая половина.
+//
+// Файл без пауз кладётся рядом с исходником, а не в рабочую папку
+// заказа: между двумя шагами человек читает и правит текст, а рабочие
+// папки в это время может подмести уборщик хранилища.
+export const prepare = async ({video, onStage}) => {
 	const startedAt = Date.now();
 
-	// Каждый заказ в своей папке: движок пишет туда транскрипт, планы,
-	// временные файлы и готовый ролик.
-	const dir = path.join(config.storage.root, 'engine', String(video.id));
-	await fs.mkdir(path.join(dir, 'input'), {recursive: true});
+	const base = path.parse(video.source_path);
+	const source = path.join(base.dir, `${base.name}-без-пауз${base.ext || '.mp4'}`);
 
-	// Исходник кладём под именем без кириллицы и пробелов: движок
-	// подставляет имя файла в пути артефактов.
-	const ext = path.extname(video.source_path) || '.mp4';
-	const source = path.join(dir, 'input', `source${ext}`);
-
-	// Паузы срезаем до того, как движок услышит запись: дальше он считает
-	// тайминги уже по укороченному звуку, и всё сходится само.
+	onStage?.('Убираю паузы', 20);
 	const trimmed = await trimPauses(video.source_path, source).catch((err) => {
 		console.error(`  ролик ${video.id} · паузы срезать не вышло: ${String(err.message).slice(0, 140)}`);
 		return null;
 	});
 
 	if (trimmed) {
-		onStage?.('Убираю паузы', 3);
 		console.log(
 			`  ролик ${video.id} · срезано пауз ${trimmed.pauses} на ${trimmed.cut.toFixed(1)}с`
 		);
@@ -382,8 +385,7 @@ export const runEngine = async ({video, onProgress, onStage}) => {
 		await fs.copyFile(video.source_path, source);
 	}
 
-	// Слушаем речь: слова с таймингами — всё, что нужно дальше.
-	onStage?.('Слушаю речь', 10);
+	onStage?.('Слушаю речь', 55);
 	const heard = await listen(source);
 
 	if (!heard.montage.scenes.length) {
@@ -399,7 +401,89 @@ export const runEngine = async ({video, onProgress, onStage}) => {
 		` за ${(heard.ms / 1000).toFixed(1)}с · реплик ${heard.montage.scenes.length}`
 	);
 
-	const montage = heard.montage;
+	return {
+		source,
+		ms: Date.now() - startedAt,
+		// Ровно то, что уйдёт человеку на правку и вернётся обратно.
+		transcript: {
+			scenes: heard.montage.scenes,
+			duration: heard.montage.source.duration,
+			words: heard.words,
+			provider: hasSpeech() ? config.speech.provider : 'границы по паузам',
+			pauses: trimmed ? {cut: trimmed.cut, count: trimmed.pauses} : null,
+		},
+	};
+};
+
+export const runEngine = async ({video, onProgress, onStage}) => {
+	const startedAt = Date.now();
+
+	// Каждый заказ в своей папке: движок пишет туда транскрипт, планы,
+	// временные файлы и готовый ролик.
+	const dir = path.join(config.storage.root, 'engine', String(video.id));
+	await fs.mkdir(path.join(dir, 'input'), {recursive: true});
+
+	// Исходник кладём под именем без кириллицы и пробелов: движок
+	// подставляет имя файла в пути артефактов.
+	const ext = path.extname(video.source_path) || '.mp4';
+	const source = path.join(dir, 'input', `source${ext}`);
+
+	// Текст уже прослушан и выверен человеком на первом шаге. Второй раз
+	// ни паузы не режем, ни речь не слушаем: файл рядом с исходником уже
+	// укорочен, а тайминги посчитаны по нему.
+	const ready = video.transcript?.scenes?.length ? video.transcript : null;
+
+	let montage;
+	let trimmed;
+	let words;
+	let provider;
+
+	if (ready) {
+		await fs.copyFile(video.source_path, source);
+		montage = shape(ready.scenes, ready.duration);
+		trimmed = ready.pauses ? {cut: ready.pauses.cut, pauses: ready.pauses.count} : null;
+		words = ready.scenes.reduce((n, scene) => n + (scene.words?.length ?? 0), 0);
+		provider = ready.provider ?? 'вычитано';
+
+		console.log(`  ролик ${video.id} · текст выверен человеком · слов ${words}`);
+	} else {
+		// Паузы срезаем до того, как движок услышит запись: дальше он считает
+		// тайминги уже по укороченному звуку, и всё сходится само.
+		trimmed = await trimPauses(video.source_path, source).catch((err) => {
+			console.error(`  ролик ${video.id} · паузы срезать не вышло: ${String(err.message).slice(0, 140)}`);
+			return null;
+		});
+
+		if (trimmed) {
+			onStage?.('Убираю паузы', 3);
+			console.log(
+				`  ролик ${video.id} · срезано пауз ${trimmed.pauses} на ${trimmed.cut.toFixed(1)}с`
+			);
+		} else {
+			await fs.copyFile(video.source_path, source);
+		}
+
+		// Слушаем речь: слова с таймингами — всё, что нужно дальше.
+		onStage?.('Слушаю речь', 10);
+		const heard = await listen(source);
+
+		if (!heard.montage.scenes.length) {
+			throw new Error(
+				heard.error
+					? `Не удалось разобрать речь: ${String(heard.error).slice(0, 200)}`
+					: 'В записи не нашлось речи — проверь, есть ли в файле звук'
+			);
+		}
+
+		console.log(
+			`  ролик ${video.id} · распознано ${heard.words} слов (${heard.provider})` +
+			` за ${(heard.ms / 1000).toFixed(1)}с · реплик ${heard.montage.scenes.length}`
+		);
+
+		montage = heard.montage;
+		words = heard.words;
+		provider = hasSpeech() ? config.speech.provider : 'границы по паузам';
+	}
 
 	// Рисуем: что показать и когда — решила модель, как это выглядит —
 	// решают наши компоненты.
@@ -412,10 +496,10 @@ export const runEngine = async ({video, onProgress, onStage}) => {
 		outputBytes: await sizeOf(outFile),
 		// Сколько срезано пауз — это и есть весь речевой монтаж.
 		speech: trimmed ? {removed_duration: trimmed.cut, pauses: trimmed.pauses} : null,
-		words: heard.words,
+		words,
 		// Кто распознавал. Без ключа речь размечается по тишине, и писать
 		// в лог имя сервиса было бы враньём.
-		speechProvider: hasSpeech() ? config.speech.provider : 'границы по паузам',
+		speechProvider: provider,
 	};
 };
 

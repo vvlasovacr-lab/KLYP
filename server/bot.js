@@ -246,6 +246,22 @@ export const buildBot = () => {
 				);
 			}
 
+			// Запись прослушана, но монтаж ещё не начат: ждём, пока человек
+			// вычитает текст. Без этого письма он бы просто не узнал, что
+			// от него чего-то ждут — а ролик стоял бы сутки и сгорел.
+			if (event.type === 'listened') {
+				const video = event.video;
+				const lines = video.transcript?.scenes?.length ?? 0;
+
+				await bot.api.sendMessage(
+					chat,
+					`Послушал «${video.title}» — ${lines} реплик.\n` +
+					`Загляни в текст: если где-то расслышал не так, поправь — это бесплатно.\n` +
+					`Монтаж начнётся, когда нажмёшь кнопку, тогда же спишется ролик из пакета.`,
+					{reply_markup: openApp()}
+				);
+			}
+
 			if (event.type === 'failed') {
 				await bot.api.sendMessage(
 					chat,

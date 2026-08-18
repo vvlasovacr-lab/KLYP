@@ -12,7 +12,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {q, one, many} from './db.js';
 import {config} from './config.js';
-import {runEngine, cleanupEngineRun} from './pipeline/engine.js';
+import {runEngine, prepare, cleanupEngineRun} from './pipeline/engine.js';
 import {addCredits} from './users.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -154,11 +154,90 @@ const takeJob = async () => {
 	return rows[0] ?? null;
 };
 
+// Несколько дублей — сначала в один файл, потом всё как обычно.
+const mergeParts = async (job, video) => {
+	const parts = Array.isArray(video.sources) ? video.sources : null;
+	if (!parts || parts.length < 2) return video.source_path;
+
+	// Дубли уже склеены на первом шаге — в source_path лежит общий файл
+	// без пауз. Склеить исходники заново значило бы выбросить и склейку,
+	// и вычитанный к ней текст.
+	if (video.transcript?.scenes?.length) return video.source_path;
+
+	await setStage(job.id, 'Склеиваю дубли', 3);
+	const glued = path.join(
+		path.dirname(video.source_path), `${path.parse(video.source_path).name}-склейка.mp4`
+	);
+
+	try {
+		const at = Date.now();
+		await glue(parts, glued);
+		console.log(
+			`  ролик ${video.id} · склеено дублей ${parts.length} за ${sec(Date.now() - at)}с`
+		);
+		return glued;
+	} catch (err) {
+		// Склейка не вышла — берём первый дубль, а не отказываем: клиент
+		// уже ждёт результат.
+		console.error(`  ролик ${video.id} · склейка не удалась: ${String(err.message).slice(0, 160)}`);
+		return video.source_path;
+	}
+};
+
+// ПЕРВЫЙ ШАГ — ТОЛЬКО ПОСЛУШАТЬ.
+//
+// Ролик из пакета за это не списывается: человек ещё ничего не получил,
+// он только увидит, что мы расслышали, и поправит ошибки. Монтаж начнёт
+// уже он сам — отдельной кнопкой.
+const listenOnly = async (job, video) => {
+	if (video.source_deleted_at) {
+		throw new Error('Исходник удалён по сроку хранения — загрузи видео заново');
+	}
+
+	video.source_path = await mergeParts(job, video);
+
+	const heard = await prepare({
+		video,
+		onStage: (label, at) => setStage(job.id, label, at),
+	});
+
+	await q(
+		`UPDATE videos SET status = 'listened', source_path = $2, transcript = $3,
+		 duration_sec = $4, speech_provider = $5, error = NULL, updated_at = NOW()
+		 WHERE id = $1`,
+		[
+			video.id,
+			heard.source,
+			JSON.stringify(heard.transcript),
+			Number(heard.transcript.duration || video.duration_sec || 0).toFixed(2),
+			heard.transcript.provider,
+		]
+	);
+	await q(
+		"UPDATE jobs SET status = 'done', progress = 100, stage = 'Текст готов', finished_at = NOW() WHERE id = $1",
+		[job.id]
+	);
+
+	console.log(
+		`  ролик ${video.id} · текст готов за ${sec(heard.ms)}с` +
+		` · реплик ${heard.transcript.scenes.length} · ждёт вычитки`
+	);
+
+	const listened = await one('SELECT * FROM videos WHERE id = $1', [video.id]);
+	await notify(video.user_id, {type: 'listened', video: listened ?? video});
+};
+
 const process1 = async (job) => {
 	const video = await one('SELECT * FROM videos WHERE id = $1', [job.video_id]);
 	if (!video) throw new Error('Ролик исчез из базы');
 
+	// Два вида работы в одной очереди: послушать перед вычиткой и
+	// смонтировать после неё. Отличаются состоянием ролика.
+	const onlyListen = video.status === 'listening';
+
 	await q("UPDATE videos SET status = 'running', updated_at = NOW() WHERE id = $1", [video.id]);
+
+	if (onlyListen) return await listenOnly(job, video);
 
 	// Исходник мог сгореть по сроку хранения — тогда монтировать нечего,
 	// и честнее сказать об этом сразу, чем падать внутри рендера.
@@ -180,27 +259,7 @@ const process1 = async (job) => {
 		console.log(`  ролик ${video.id} · правка ${video.parent_id} · меток ${marks.length}`);
 	}
 
-	// Несколько дублей — сначала в один файл, потом всё как обычно.
-	const parts = Array.isArray(video.sources) ? video.sources : null;
-	if (parts && parts.length > 1) {
-		await setStage(job.id, 'Склеиваю дубли', 3);
-		const glued = path.join(
-			path.dirname(video.source_path), `${path.parse(video.source_path).name}-склейка.mp4`
-		);
-
-		try {
-			const at = Date.now();
-			await glue(parts, glued);
-			video.source_path = glued;
-			console.log(
-				`  ролик ${video.id} · склеено дублей ${parts.length} за ${sec(Date.now() - at)}с`
-			);
-		} catch (err) {
-			// Склейка не вышла — монтируем первый дубль, а не отказываем:
-			// клиент уже заплатил и ждёт ролик.
-			console.error(`  ролик ${video.id} · склейка не удалась: ${String(err.message).slice(0, 160)}`);
-		}
-	}
+	video.source_path = await mergeParts(job, video);
 
 	await setStage(job.id, 'Готовлю материал', 4);
 
@@ -288,9 +347,15 @@ const failJob = async (job, err) => {
 
 	// Ролик не получился — возвращаем списанный кредит. Клиент не должен
 	// платить за нашу ошибку.
+	//
+	// Упасть можно и до списания: на шаге, где мы только слушаем запись,
+	// с пакета ещё ничего не снято. Там cost равен нулю, и «возврат»
+	// выдал бы человеку ролик из воздуха.
 	const video = await one('SELECT * FROM videos WHERE id = $1', [job.video_id]);
 	if (video) {
-		await addCredits(video.user_id, Number(video.cost), 'Возврат за неудачный рендер', String(video.id));
+		if (Number(video.cost) > 0) {
+			await addCredits(video.user_id, Number(video.cost), 'Возврат за неудачный рендер', String(video.id));
+		}
 		await notify(video.user_id, {type: 'failed', video, message});
 	}
 };
@@ -510,19 +575,32 @@ export const sweepStorage = async () => {
 	);
 	for (const video of outputs) await dropOutput(video);
 
+	// Расшифровка, к которой никто не вернулся. Человек загрузил ролик,
+	// увидел текст и закрыл приложение — ролик из пакета не списан, а
+	// исходник лежит и занимает место. Через сутки убираем файл, карточку
+	// оставляем с внятной причиной.
+	const abandoned = await many(
+		`UPDATE videos SET status = 'expired',
+		   error = 'Расшифровка не подтверждена за сутки — загрузи видео заново'
+		 WHERE status = 'listened' AND updated_at < NOW() - interval '24 hours'
+		 RETURNING *`
+	);
+	for (const video of abandoned) await dropSource(video);
+
 	// Срок хранения — это про порядок, а не про выживание. Если места
 	// нет прямо сейчас, сносим самое старое, не дожидаясь срока.
 	const forced = await freeUpSpace();
 
-	if (sources.length || outputs.length || engineDirs || forced || halfDone) {
+	if (sources.length || outputs.length || engineDirs || forced || halfDone || abandoned.length) {
 		console.log(
 			`  уборка: исходников ${sources.length}, просроченных роликов ${outputs.length},` +
 			` рабочих папок ${engineDirs}` +
+			(abandoned.length ? `, брошенных расшифровок ${abandoned.length}` : '') +
 			(halfDone ? `, брошенных загрузок ${halfDone}` : '') +
 			(forced ? `, аварийно ${forced}` : '')
 		);
 	}
-	return {sources: sources.length, outputs: outputs.length, engineDirs, forced};
+	return {sources: sources.length, outputs: outputs.length, engineDirs, forced, abandoned: abandoned.length};
 };
 
 export const startSweeper = () => {

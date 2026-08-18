@@ -58,6 +58,16 @@ const split = (chunks) => {
 //   camera     — ритм склеек считается по акцентам
 //   broll      — врезки выбирает модель по смыслу речи
 //   face       — никем не читалось
+export const shape = (scenes, duration) => ({
+	scenes,
+	source: {duration},
+	output: {duration},
+	speechEdit: {timeline: [], hook: null},
+	camera: [],
+	broll: [],
+	face: null,
+});
+
 export const listen = async (file) => {
 	const heard = await transcribe(file);
 
@@ -74,18 +84,56 @@ export const listen = async (file) => {
 	}));
 
 	return {
-		montage: {
-			scenes,
-			source: {duration: heard.duration},
-			output: {duration: heard.duration},
-			speechEdit: {timeline: [], hook: null},
-			camera: [],
-			broll: [],
-			face: null,
-		},
+		montage: shape(scenes, heard.duration),
 		provider: heard.provider ?? 'silence',
 		words: heard.words ?? 0,
 		ms: heard.ms ?? 0,
 		error: heard.error ?? null,
 	};
+};
+
+// ПРАВКА РАСШИФРОВКИ.
+//
+// Распознавание ошибается на именах, названиях и аббревиатурах: «ООшка»
+// приезжает как «уОшка», и дальше эта ошибка расходится по всему ролику
+// — в субтитры, в заголовок, в выбор врезок. На потоке это дороже всего:
+// клиент платит второй ролик за то, чтобы починить одно слово.
+//
+// Поэтому текст показывается до монтажа и его можно поправить. Здесь
+// исправленная строка возвращается обратно в слова с таймингами.
+//
+// Слов после правки может стать больше или меньше: человек склеивает
+// «пол года» в «полгода» или разбивает слипшееся. Когда счёт сошёлся,
+// тайминги садятся один в один. Когда нет — реплика делится по длине
+// слов: длинное слово звучит дольше короткого, и на глаз это не
+// расходится, потому что реплика и так меньше пяти секунд.
+const spread = (words, from, to) => {
+	const weights = words.map((w) => Math.max(1, w.length));
+	const total = weights.reduce((a, b) => a + b, 0);
+	const span = Math.max(0.05, to - from);
+
+	let at = from;
+	return words.map((word, i) => {
+		const end = i === words.length - 1 ? to : at + (span * weights[i]) / total;
+		const piece = {word, start: Number(at.toFixed(3)), end: Number(end.toFixed(3))};
+		at = end;
+		return piece;
+	});
+};
+
+export const retext = (scene, text) => {
+	const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+
+	// Реплику вычистили целиком — значит человек считает, что этих слов в
+	// ролике нет. Пустую реплику дальше по трубе не пускаем.
+	if (!words.length) return null;
+
+	const was = Array.isArray(scene.words) ? scene.words : [];
+
+	// Счёт сошёлся — меняем только написание, тайминги родные.
+	if (words.length === was.length) {
+		return {...scene, words: was.map((w, i) => ({...w, word: words[i]}))};
+	}
+
+	return {...scene, words: spread(words, scene.start, scene.end)};
 };

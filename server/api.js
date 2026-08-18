@@ -20,6 +20,7 @@ import {PACKAGES, findPackage} from './packages.js';
 import {TEMPLATES} from './pipeline/plan.js';
 import {SAFE} from './../src/style.js';
 import {probeDuration} from './pipeline/transcribe.js';
+import {retext} from './pipeline/listen.js';
 import {startPayment, applyWebhook, verifyWebhook} from './lava.js';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -55,7 +56,7 @@ const recentlyStarted = (userId) =>
 	CREATE_COOLDOWN_SEC > 0
 		? one(
 				`SELECT id, title FROM videos
-				 WHERE user_id = $1 AND status IN ('queued','running')
+				 WHERE user_id = $1 AND status IN ('queued','running','listening')
 				   AND created_at > NOW() - ($2 || ' seconds')::interval
 				 ORDER BY id DESC LIMIT 1`,
 				[userId, CREATE_COOLDOWN_SEC]
@@ -623,22 +624,49 @@ export const buildApi = async ({notify}) => {
 		const preview = fields.preview === 'true' || fields.preview === '1';
 		const cost = preview ? config.render.previewCost : 1;
 
+		// ВЫЧИТКА ПЕРЕД МОНТАЖОМ.
+		//
+		// Распознавание врёт на именах и аббревиатурах, и раньше человек
+		// узнавал об этом уже из готового ролика — а починить одно слово
+		// стоило ещё одного ролика из пакета.
+		//
+		// В этом режиме сначала только слушаем: ролик не списывается,
+		// монтаж не начинается. Человек читает текст, правит и запускает
+		// монтаж сам — тогда и спишется.
+		const review = fields.review === 'true' || fields.review === '1';
+		const status = review ? 'listening' : 'queued';
+
+		// Пакет проверяем и здесь: незачем тратить минуту на распознавание
+		// того, что человек всё равно не сможет смонтировать.
+		if (review) {
+			const enough = await one('SELECT credits, expires_at FROM users WHERE id = $1', [user.id]);
+			const dead = enough?.expires_at && new Date(enough.expires_at) < new Date();
+			if (dead || Number(enough?.credits ?? 0) < cost) {
+				await drop();
+				return reply.code(402).send({
+					error: dead ? 'Пакет сгорел — нужно докупить ролики' : 'Не хватает роликов в пакете',
+				});
+			}
+		}
+
 		// Списание, карточка ролика и задача — одной транзакцией.
 		// Раньше это были три отдельных запроса: упади любой из них,
 		// кредит оставался списанным, а ролика не появлялось.
 		let result;
 		try {
 			result = await tx(async (client) => {
-				const spent = await spendCreditsIn(
-					client, user.id, cost, preview ? 'Черновик' : 'Монтаж ролика'
-				);
+				const spent = review
+					? {ok: true, credits: null}
+					: await spendCreditsIn(
+						client, user.id, cost, preview ? 'Черновик' : 'Монтаж ролика'
+					);
 				if (!spent.ok) return {error: spent.reason, code: 402};
 
 				const {rows} = await client.query(
 					`INSERT INTO videos (user_id, title, status, template, brief, reference_url,
 					                     source_path, preview_only, cost, client_token, duration_sec, font,
 					                     sources, clips, music)
-					 VALUES ($1,$2,'queued',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+					 VALUES ($1,$2,$15,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
 					[
 						user.id,
 						(fields.title || 'Новый ролик').slice(0, 120),
@@ -647,7 +675,9 @@ export const buildApi = async ({notify}) => {
 						(fields.reference || '').slice(0, 500),
 						saved,
 						preview,
-						cost,
+						// Сколько уже списано. На шаге прослушивания — ноль:
+						// от этого числа считается возврат, если упадём.
+						review ? 0 : cost,
 						token2,
 						Number(duration.toFixed(2)),
 						(fields.font || '').slice(0, 40) || null,
@@ -656,11 +686,12 @@ export const buildApi = async ({notify}) => {
 						parts.length > 1 ? JSON.stringify(parts) : null,
 						ownClips.length ? JSON.stringify(ownClips) : null,
 						ownMusic,
+						status,
 					]
 				);
 				const video = rows[0];
 				await client.query('INSERT INTO jobs (video_id) VALUES ($1)', [video.id]);
-				return {id: Number(video.id), credits: spent.credits};
+				return {id: Number(video.id), credits: spent.credits, review};
 			});
 		} catch (err) {
 			await drop();
@@ -677,7 +708,103 @@ export const buildApi = async ({notify}) => {
 			return reply.code(result.code).send({error: result.error});
 		}
 
-		return {ok: true, id: result.id, credits: result.credits};
+		return {ok: true, id: result.id, credits: result.credits, review: result.review};
+	});
+
+	// Что мы расслышали — построчно, с таймингами. Клиент показывает это
+	// человеку до монтажа, чтобы ошибки распознавания не уехали в ролик.
+	app.get('/api/videos/:id/transcript', async (req, reply) => {
+		const user = await auth(req, reply);
+		if (!user) return;
+
+		const video = await one(
+			'SELECT id, status, transcript, duration_sec FROM videos WHERE id = $1 AND user_id = $2',
+			[req.params.id, user.id]
+		);
+		if (!video) return reply.code(404).send({error: 'Ролик не найден'});
+
+		const scenes = video.transcript?.scenes ?? [];
+
+		return {
+			ok: true,
+			status: video.status,
+			duration: Number(video.duration_sec) || 0,
+			// Человеку нужен текст, а не слова с таймингами: их мы
+			// восстановим сами, когда он вернёт правку.
+			lines: scenes.map((scene, i) => ({
+				i,
+				start: Number(scene.start) || 0,
+				end: Number(scene.end) || 0,
+				text: (scene.words ?? []).map((w) => w.word).join(' '),
+			})),
+		};
+	});
+
+	// Вычитанный текст + запуск монтажа. Здесь и списывается ролик:
+	// до этой минуты человек ничего не потратил.
+	app.post('/api/videos/:id/transcript', async (req, reply) => {
+		const user = await auth(req, reply);
+		if (!user) return;
+
+		const video = await one('SELECT * FROM videos WHERE id = $1 AND user_id = $2', [
+			req.params.id,
+			user.id,
+		]);
+		if (!video) return reply.code(404).send({error: 'Ролик не найден'});
+
+		if (video.status !== 'listened') {
+			return reply.code(409).send({
+				error: video.status === 'listening'
+					? 'Ещё слушаю запись — подожди немного'
+					: 'Этот ролик уже в монтаже',
+			});
+		}
+
+		const scenes = video.transcript?.scenes ?? [];
+		if (!scenes.length) return reply.code(409).send({error: 'Расшифровки нет — загрузи видео заново'});
+
+		// Клиент присылает только строки, которые изменились. Остальные
+		// берём как есть: так правка одного слова не переписывает тайминги
+		// всего ролика.
+		const edits = new Map(
+			(Array.isArray(req.body?.lines) ? req.body.lines : [])
+				.filter((line) => Number.isInteger(line?.i))
+				.map((line) => [line.i, String(line.text ?? '').slice(0, 600)])
+		);
+
+		const fixed = scenes
+			.map((scene, i) => (edits.has(i) ? retext(scene, edits.get(i)) : scene))
+			.filter(Boolean);
+
+		if (!fixed.length) {
+			return reply.code(400).send({error: 'Текст пустой — в ролике не останется ни слова'});
+		}
+
+		const cost = video.preview_only ? config.render.previewCost : 1;
+
+		const result = await tx(async (client) => {
+			// Ещё раз под замком: между вычиткой и запуском человек мог
+			// потратить пакет в другом окне.
+			const spent = await spendCreditsIn(
+				client, user.id, cost, video.preview_only ? 'Черновик' : 'Монтаж ролика', String(video.id)
+			);
+			if (!spent.ok) return {error: spent.reason, code: 402};
+
+			await client.query(
+				`UPDATE videos SET status = 'queued', transcript = $2, cost = $3, updated_at = NOW()
+				 WHERE id = $1 AND status = 'listened'`,
+				[video.id, JSON.stringify({...video.transcript, scenes: fixed}), cost]
+			);
+			await client.query('INSERT INTO jobs (video_id) VALUES ($1)', [video.id]);
+			return {credits: spent.credits};
+		});
+
+		if (result.error) return reply.code(result.code).send({error: result.error});
+
+		const changed = [...edits.keys()].filter((i) => scenes[i]).length;
+		console.log(`  ролик ${video.id} · текст вычитан · правок строк ${changed} · монтаж пошёл`);
+
+		return {ok: true, id: Number(video.id), credits: result.credits, edited: changed};
 	});
 
 	// Пересборка с метками правок — стоит один ролик из пакета.

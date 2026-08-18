@@ -146,6 +146,53 @@ h1, h2, h3, h4, .display {
 .bar { height: 2px; background: var(--line); overflow: hidden; border-radius: 2px; }
 .bar i { display: block; height: 100%; background: var(--red); transition: width .25s; }
 
+/* Расшифровка до монтажа */
+.pill {
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--mute);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+.ln {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ln .tc {
+  flex: 0 0 auto;
+  width: 38px;
+  padding-top: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #4A4A4A;
+}
+.ln textarea {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  color: var(--paper);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+}
+.ln textarea:focus { color: #fff; }
+/* Тронутую строку видно сразу: иначе после правки десяти реплик
+   непонятно, что именно ты уже поправил. */
+.ln.fix { border-bottom-color: var(--red); }
+.ln.fix .tc { color: var(--red); }
+
 /* ── горизонтальные ленты ──────────────────────────────────── */
 .rail, .hints {
   display: flex;
@@ -695,6 +742,36 @@ h1, h2, h3, h4, .display {
           <button class="btn wide" style="margin-top:16px" id="start">Смонтировать · 1 ролик из пакета</button>
         </section>
 
+        <!-- ══════════ РАСШИФРОВКА ══════════ -->
+        <!--
+          Распознавание ошибается на именах и аббревиатурах, а замечает
+          это человек уже в готовом ролике. Здесь текст показывается до
+          монтажа: ролик из пакета ещё не списан, и правка стоит ноль.
+        -->
+        <section class="page" id="p-text">
+          <div class="spread" style="margin:6px 0 12px">
+            <div>
+              <div class="eyebrow" style="margin:0">Что я расслышал</div>
+              <div style="font-size:11.5px;color:var(--mute);margin-top:4px" id="txnote">Слушаю запись…</div>
+            </div>
+            <div class="pill" id="txcount"></div>
+          </div>
+
+          <div class="bar" id="txbar"><i id="txfill" style="width:8%"></i></div>
+
+          <div id="txlines" style="margin-top:14px"></div>
+
+          <div class="card" id="txhint" style="margin-top:14px;display:none">
+            <div style="font-size:12.5px;line-height:1.5;color:var(--mute)">
+              Поправь только то, что распознано неверно — имена, названия,
+              аббревиатуры. Это ничего не стоит: ролик из пакета спишется,
+              когда нажмёшь кнопку внизу.
+            </div>
+          </div>
+
+          <button class="btn wide" style="margin-top:16px;display:none" id="txgo">Смонтировать · 1 ролик из пакета</button>
+        </section>
+
         <!-- ══════════ РОЛИКИ ══════════ -->
         <section class="page" id="p-lib">
           <div class="spread" style="margin:6px 0 12px">
@@ -1238,7 +1315,10 @@ h1, h2, h3, h4, .display {
           brief: brief.value.slice(0, 4000),
           reference: ($('refurl').value || '').slice(0, 500),
           preview: $('t-preview').classList.contains('on') ? '1' : '0',
-          font: fontKey || ''
+          font: fontKey || '',
+          // Сначала только послушать. Ролик из пакета спишется после
+          // того, как человек вычитает текст и сам нажмёт монтаж.
+          review: '1'
         })
       });
     }).then(function(r){
@@ -1257,6 +1337,14 @@ h1, h2, h3, h4, .display {
         $('clipsname').textContent = 'Добавить свои кадры';
         $('musicname').textContent = 'Добавить трек';
         brief.value = '';
+
+        // Ролик ушёл на прослушивание: сначала текст, монтаж потом.
+        if (res.j.review && !res.j.duplicate){
+          openText(res.j.id);
+          loadMe();
+          return;
+        }
+
         shout(res.j.duplicate ? 'Этот ролик уже в очереди' : 'Ролик встал в очередь',
               'Пришлю ссылку в бот, апп можно закрыть');
         go('p-lib');
@@ -1282,6 +1370,145 @@ h1, h2, h3, h4, .display {
     });
   }
 
+  /* ═══════════ РАСШИФРОВКА ═══════════ */
+  /*
+    Между загрузкой и монтажом появился шаг: человек читает, что мы
+    расслышали, и правит ошибки распознавания. До нажатия кнопки внизу
+    ролик из пакета не списывается — значит правка бесплатна, а раньше
+    стоила ещё одного ролика.
+  */
+
+  var txlines = $('txlines'), txnote = $('txnote'), txcount = $('txcount');
+  var txbar = $('txbar'), txfill = $('txfill'), txgo = $('txgo'), txhint = $('txhint');
+  var TX = {id: null, lines: [], edits: {}, timer: null};
+
+  var clock = function(sec){
+    var s = Math.max(0, Math.round(sec));
+    return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+  };
+
+  // Поле растёт под текст: на телефоне полоса прокрутки внутри строки
+  // читается как поломка.
+  function grow(el){
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+
+  function paintText(lines){
+    TX.lines = lines;
+    txlines.innerHTML = '';
+
+    lines.forEach(function(line){
+      var row = document.createElement('div');
+      row.className = 'ln';
+
+      var tc = document.createElement('span');
+      tc.className = 'tc';
+      tc.textContent = clock(line.start);
+
+      var box = document.createElement('textarea');
+      box.rows = 1;
+      box.value = line.text;
+      box.setAttribute('aria-label', 'Реплика на ' + clock(line.start));
+
+      box.addEventListener('input', function(){
+        grow(box);
+        var changed = box.value.trim() !== line.text.trim();
+        row.classList.toggle('fix', changed);
+        if (changed) TX.edits[line.i] = box.value; else delete TX.edits[line.i];
+        countEdits();
+      });
+
+      row.appendChild(tc);
+      row.appendChild(box);
+      txlines.appendChild(row);
+      grow(box);
+    });
+
+    countEdits();
+  }
+
+  function countEdits(){
+    var n = Object.keys(TX.edits).length;
+    txcount.textContent = n ? ('правок: ' + n) : (TX.lines.length + ' реплик');
+  }
+
+  function pollText(){
+    // Человек мог уйти с экрана, пока мы слушали. Тогда опрос молча
+    // прекращается: дёргать его обратно на текст — хамство.
+    if (!$('p-text').classList.contains('on')) { TX.timer = null; return; }
+
+    api('/api/videos/' + TX.id + '/transcript').then(function(j){
+      if (!$('p-text').classList.contains('on')) { TX.timer = null; return; }
+
+      if (j.status === 'listening' || j.status === 'running'){
+        txfill.style.width = '55%';
+        TX.timer = setTimeout(pollText, 2000);
+        return;
+      }
+
+      if (j.status !== 'listened'){
+        txbar.style.display = 'none';
+        txnote.textContent = 'Расшифровка не получилась';
+        shout('Не удалось разобрать речь', 'Проверь, есть ли в файле звук');
+        go('p-lib');
+        refresh();
+        return;
+      }
+
+      txbar.style.display = 'none';
+      txnote.textContent = 'Поправь, если где-то расслышал не так';
+      txhint.style.display = '';
+      txgo.style.display = '';
+      paintText(j.lines || []);
+    }).catch(function(e){
+      // Сеть моргнула — не бросаем экран, пробуем ещё.
+      TX.timer = setTimeout(pollText, 3000);
+    });
+  }
+
+  function openText(id){
+    TX.id = id;
+    TX.lines = [];
+    TX.edits = {};
+    clearTimeout(TX.timer);
+
+    txlines.innerHTML = '';
+    txcount.textContent = '';
+    txnote.textContent = 'Слушаю запись…';
+    txbar.style.display = '';
+    txfill.style.width = '12%';
+    txhint.style.display = 'none';
+    txgo.style.display = 'none';
+    txgo.disabled = false;
+    txgo.textContent = 'Смонтировать · 1 ролик из пакета';
+
+    go('p-text');
+    pollText();
+  }
+
+  txgo.addEventListener('click', function(){
+    txgo.disabled = true;
+    txgo.textContent = 'Ставлю в очередь…';
+
+    // Шлём только тронутые строки: у нетронутых тайминги родные, и
+    // трогать их незачем.
+    var lines = Object.keys(TX.edits).map(function(i){
+      return {i: Number(i), text: TX.edits[i]};
+    });
+
+    api('/api/videos/' + TX.id + '/transcript', {lines: lines}).then(function(){
+      shout('Ролик встал в очередь', 'Пришлю ссылку в бот, апп можно закрыть');
+      go('p-lib');
+      refresh();
+      loadMe();
+    }).catch(function(e){
+      txgo.disabled = false;
+      txgo.textContent = 'Смонтировать · 1 ролик из пакета';
+      shout('Не вышло запустить', String(e.message || e).slice(0, 120));
+    });
+  });
+
   /* ═══════════ БИБЛИОТЕКА ═══════════ */
 
   var grid = $('grid'), selinfo = $('selinfo'), toedit = $('toedit');
@@ -1295,7 +1522,11 @@ h1, h2, h3, h4, .display {
     queued:  {cls:'wait', label:'Ждёт'},
     failed:  {cls:'wait', label:'Ошибка'},
     expired: {cls:'wait', label:'Срок вышел'},
-    draft:   {cls:'wait', label:'Черновик'}
+    draft:   {cls:'wait', label:'Черновик'},
+    // Два состояния до монтажа: слушаем запись и ждём, пока человек
+    // вычитает текст. Ролик из пакета за них не списан.
+    listening: {cls:'run',  label:'Слушаю'},
+    listened:  {cls:'wait', label:'Читай текст'}
   };
 
   function paintVideos(list){
@@ -1323,7 +1554,9 @@ h1, h2, h3, h4, .display {
       var st = STATE[v.status] || STATE.draft;
       var when = v.status === 'ready'
         ? fmtDate(v.createdAt) + (v.duration ? ' · ' + fmtDur(v.duration) : '')
-        : (v.status === 'failed' ? 'не получилось' : (v.stage || 'в очереди'));
+        : v.status === 'failed' ? 'не получилось'
+        : v.status === 'listened' ? 'ждёт вычитки — нажми'
+        : (v.stage || 'в очереди');
 
       var el = document.createElement('div');
       el.className = 'clip' + (selected === v.id ? ' sel' : '');
@@ -1359,7 +1592,13 @@ h1, h2, h3, h4, .display {
       return;
     }
     if (v.status === 'expired'){
-      shout('Срок хранения истёк', 'Файл удалён через ' + META.keepDays + ' дней после монтажа');
+      shout('Срок хранения истёк', v.error || ('Файл удалён через ' + META.keepDays + ' дней после монтажа'));
+      return;
+    }
+    // Расшифровка готова и ждёт человека — возвращаем его к тексту,
+    // а не сообщаем, что ролик «ещё не готов».
+    if (v.status === 'listening' || v.status === 'listened'){
+      openText(v.id);
       return;
     }
     if (v.status !== 'ready'){
@@ -1612,7 +1851,9 @@ h1, h2, h3, h4, .display {
   // Пока в работе есть ролик — подтягиваем прогресс. Когда очередь
   // пуста, опрос прекращается: дёргать сервер вхолостую незачем.
   setInterval(function(){
-    var busy = VIDEOS.some(function(v){ return v.status === 'running' || v.status === 'queued'; });
+    var busy = VIDEOS.some(function(v){
+      return v.status === 'running' || v.status === 'queued' || v.status === 'listening';
+    });
     if (busy) refresh();
   }, 3000);
 

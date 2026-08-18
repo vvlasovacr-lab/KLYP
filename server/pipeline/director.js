@@ -318,7 +318,16 @@ export const direct = async ({
 	if (!hasModel()) return null;
 	if (!chunks?.length) return null;
 
-	client ??= new Anthropic({apiKey: config.anthropic.apiKey});
+	// Ждать ответа вечно нельзя. Разметка по правилам никуда не делась:
+	// лучше собрать ролик без модели за минуту, чем держать человека в
+	// очереди полчаса на подвисшем запросе. С кадрами и восемью тысячами
+	// токенов ответ приходит примерно за сорок секунд — двух минут хватает
+	// с запасом, а одного повтора хватает на сетевую икоту.
+	client ??= new Anthropic({
+		apiKey: config.anthropic.apiKey,
+		timeout: 120_000,
+		maxRetries: 1,
+	});
 
 	const clips = CLIPS.map((c) => `${c.file} — ${c.about}`).join('\n');
 
