@@ -206,6 +206,7 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 	if (director) {
 		console.log(
 			`  режиссёр: смотрел ${seen.length} кадров,` +
+			` заход «${director.opening}»,` +
 			` ${director.accents?.length ?? 0} акцентов,` +
 			` ${director.broll?.length ?? 0} врезок, жанр ${director.template}` +
 			` · ${(director.ms / 1000).toFixed(1)}с` +

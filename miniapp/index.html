@@ -686,6 +686,15 @@ h1, h2, h3, h4, .display {
             <button class="btn ghost wide sm" style="margin-top:12px" id="refcopy">Скопировать ссылку</button>
           </div>
 
+          <!--
+            Номер сборки. Telegram кеширует страницу у себя, и после
+            выкатки в телефоне может открыться вчерашняя версия. Сверив
+            номер, сразу понимаешь, что перед тобой.
+          -->
+          <div style="margin-top:22px;text-align:center;font-size:11px;color:#3A3A3A">
+            сборка <span id="ver">—</span>
+          </div>
+
           </section>
 
         <!-- ══════════ СОЗДАТЬ ══════════ -->
@@ -1840,6 +1849,7 @@ h1, h2, h3, h4, .display {
     META.maxUploadMb = m.maxUploadMb || 2048;
     META.keepDays = m.keepDays || 30;
     META.fonts = m.fonts || [];
+    if (m.version) $('ver').textContent = m.version;
     paintTemplates();
     paintFonts();
     dropnote.innerHTML = 'До ' + Math.round(META.maxDurationSec/60) + ' минут, вертикальное или горизонтальное<br>MOV, MP4 · до ' + META.maxUploadMb + ' МБ';

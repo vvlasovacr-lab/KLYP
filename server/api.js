@@ -25,6 +25,21 @@ import {startPayment, applyWebhook, verifyWebhook} from './lava.js';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
+// НОМЕР СБОРКИ.
+//
+// Telegram кеширует мини-апп у себя, и после выкатки в телефоне может
+// открыться вчерашняя страница. Снаружи это выглядит так, будто новая
+// работа не сделана. Номер коммита виден в приложении — сверяешь его
+// и сразу знаешь, что перед тобой.
+//
+// Railway кладёт хеш коммита в окружение сам; локально его нет, и тогда
+// показываем время запуска.
+const VERSION = (
+	process.env.RAILWAY_GIT_COMMIT_SHA ??
+	process.env.SOURCE_COMMIT ??
+	''
+).slice(0, 7) || new Date().toISOString().slice(5, 16).replace('T', ' ');
+
 // ── защита от двойного запуска ────────────────────────────────
 // Два уровня. Первый — ключ идемпотентности от клиента: повторная
 // отправка того же запроса возвращает уже созданный ролик, а не
@@ -104,9 +119,18 @@ export const buildApi = async ({notify}) => {
 
 	// Мини-апп отдаётся статикой с этого же домена — Telegram требует https,
 	// а Railway его уже даёт.
+	//
+	// Без no-store Telegram держит старую страницу у себя: выкатываешь
+	// новую версию, а в телефоне открывается вчерашняя — и не поймёшь,
+	// то ли не выкатилось, то ли не работает. Страница одна и весит
+	// сотню килобайт, экономить на её кешировании нечего.
 	await app.register(fstatic, {
 		root: path.join(ROOT, 'miniapp'),
 		prefix: '/app/',
+		cacheControl: false,
+		setHeaders: (res) => {
+			res.setHeader('Cache-Control', 'no-store, must-revalidate');
+		},
 	});
 
 	// Шрифты нужны и рендеру, и мини-аппу: в приложении кнопка выбора
@@ -210,6 +234,10 @@ export const buildApi = async ({notify}) => {
 	};
 
 	app.get('/api/meta', async () => ({
+		// Какая сборка сейчас крутится. Без этого номера непонятно, что
+		// перед тобой: новая версия работает неправильно или открылась
+		// старая. Один раз это уже стоило вечера разбирательств.
+		version: VERSION,
 		packages: PACKAGES,
 		templates: TEMPLATES,
 		fonts: await listFonts(),
