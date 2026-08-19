@@ -200,6 +200,12 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 	// открытая студия, а не заказ клиента.
 	const title = tl.title ?? (plan && typeof plan === 'object' ? null : TITLE);
 	const titleOnScreen = Boolean(title) && time >= title.in && time < title.out;
+
+	// Плашка приходит не с нулевой секунды, а чуть позже — и в эту щель
+	// успевали показаться субтитры. В кадре мигала чужая надпись: первые
+	// слова титрами, а через долю секунды их сменял заголовок. Пока
+	// плашка не ушла, субтитров нет вовсе, даже до её появления.
+	const titleHolds = Boolean(title) && time < title.out;
 	const shout = tl.shoutAt(time);
 
 	// Врезка бывает двух видов. Во весь экран — уводит от говорящего,
@@ -333,7 +339,7 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 			{/* плашка и выкрик перебивают обычные титры — иначе текст дублируется */}
 			{titleOnScreen ? (
 				<TitleCard title={title} time={time} fromSeconds={fromSeconds} look={look} manner={manner} />
-			) : shout ? (
+			) : titleHolds ? null : shout ? (
 				<Shout shout={shout} fromSeconds={fromSeconds} look={look} />
 			) : (
 				<Subtitles
