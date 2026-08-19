@@ -270,13 +270,22 @@ export const TitleCard = ({title, time, fromSeconds = 0, look, manner}) => {
 		{extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}
 	);
 
+	// Опора съезжает вверх, когда строк много.
+	//
+	// Плашка растёт вверх от груди. На двух строках это ровно то, что
+	// нужно: текст лежит на груди, лицо свободно. На четырёх блок
+	// вырастает вдвое и закрывает торс целиком — в кадре не остаётся
+	// человека, только надпись. Поднимаем опору так, чтобы центр блока
+	// оставался примерно на месте.
+	const anchor = TITLE.anchorY - Math.max(0, T.lines.length - 2) * 0.045;
+
 	return (
 		<div
 			style={{
 				position: 'absolute',
 				left: 0,
 				right: 0,
-				top: height * TITLE.anchorY,
+				top: height * anchor,
 				transform: `translate(${shiftX}px, -50%) scale(${1 + leave * 0.06})`,
 				opacity: 1 - leave,
 				display: 'flex',
