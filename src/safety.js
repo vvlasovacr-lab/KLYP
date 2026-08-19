@@ -115,11 +115,7 @@ export const checkSafeArea = (plan, {width = 1080, height = 1920} = {}) => {
 	if (title?.lines?.length) {
 		// Плашка идёт сверху и набирается крупно — она рискует больше всех.
 		// Плашка растёт вверх от опорной линии на груди, а не от верха кадра.
-		//
-		// Опора та же, что в компоненте, вместе со сдвигом на многострочной
-		// плашке: считать по другой означало бы проверять не то, что видит
-		// зритель.
-		const top = (TITLE?.anchorY ?? 0.575) - Math.max(0, title.lines.length - 2) * 0.045;
+		const top = TITLE?.anchorY ?? 0.575;
 		for (const [i, line] of title.lines.entries()) {
 			const text = line.pieces.map((p) => p.text).join(' ');
 			const tier = line.pieces[0]?.kind === 'badge' ? TITLE.badge : TITLE.big;

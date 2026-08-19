@@ -270,14 +270,30 @@ export const TitleCard = ({title, time, fromSeconds = 0, look, manner}) => {
 		{extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}
 	);
 
-	// Опора съезжает вверх, когда строк много.
+	// ПЛАШКА НЕ ЛЕЗЕТ НА ЛИЦО.
 	//
-	// Плашка растёт вверх от груди. На двух строках это ровно то, что
-	// нужно: текст лежит на груди, лицо свободно. На четырёх блок
-	// вырастает вдвое и закрывает торс целиком — в кадре не остаётся
-	// человека, только надпись. Поднимаем опору так, чтобы центр блока
-	// оставался примерно на месте.
-	const anchor = TITLE.anchorY - Math.max(0, T.lines.length - 2) * 0.045;
+	// Блок растёт вверх от опоры на груди. На двух строках это ровно то,
+	// что нужно. На четырёх он вырастает вдвое — и упирается в лицо.
+	//
+	// Двигать опору вверх было ошибкой: блок растёт вверх, и вместе с
+	// опорой он уехал прямо на подбородок. Опору наоборот опускаем,
+	// насколько позволяет нижняя граница площадки, а если и этого мало —
+	// ужимаем сам блок. Лицо важнее размера букв.
+	const rowsH = T.lines.reduce((sum, line) => {
+		const tier = line.pieces[0]?.kind === 'badge' ? TITLE.badge : TITLE.big;
+		return sum + tier.size * fit * 1.06;
+	}, 0) / height;
+
+	const floor = 1 - SAFE.bottom - 0.02;
+	const anchor = Math.min(floor, Math.max(TITLE.anchorY, TITLE.minTopY + rowsH));
+
+	// Даже опущенная до предела плашка может не поместиться — тогда
+	// уменьшаем её целиком, сохраняя соотношения строк.
+	const squeeze = anchor - rowsH < TITLE.minTopY
+		? Math.max(0.62, (anchor - TITLE.minTopY) / rowsH)
+		: 1;
+
+	const fitted = fit * squeeze;
 
 	return (
 		<div
@@ -302,7 +318,7 @@ export const TitleCard = ({title, time, fromSeconds = 0, look, manner}) => {
 					index={i}
 					fps={fps}
 					frame={frame}
-					fit={fit}
+					fit={fitted}
 					look={look}
 					mode={manner?.titleIn ?? MANNER.titleIn}
 					width={width}
