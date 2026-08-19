@@ -20,7 +20,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {config, hasSpeech} from './../config.js';
 import {direct} from './director.js';
-import {listen, shape} from './listen.js';
+import {listen, shape as toMontage} from './listen.js';
 import {eyes} from './frames.js';
 import {probeSize} from './transcribe.js';
 
@@ -122,68 +122,58 @@ const trimPauses = async (from, to) => {
 	return {cut, pauses: parts.length};
 };
 
-// КАК УЛОЖИТЬ ГОРИЗОНТАЛЬНЫЙ ИСХОДНИК В ВЕРТИКАЛЬНЫЙ КАДР.
+// ФОРМА ВЫДАЧИ ИДЁТ ОТ СЪЁМКИ.
 //
-// Вертикальное видео ложится само. С горизонтальным выбора по сути нет:
-// вертикальный кадр вчетверо уже, и две трети ширины придётся выбросить.
-// Вопрос только в том, какие именно.
+// Раньше выдача всегда была вертикальной, и горизонтальный ролик
+// приходилось обрезать. Мы перебрали три способа, и все три вышли
+// плохими: полоса оставляла человека в узкой ленте; мягкий кадр с
+// размытой подложкой на светлом однотонном фоне вырождался в серые
+// поля; полная обрезка выбрасывала две трети ширины и давала лицо в
+// упор.
 //
-// Мы перепробовали всё, и вот чем это кончилось.
-//
-// Полоса во всю ширину — резкая картинка занимает треть экрана, человек
-// мелкий, вокруг размытые поля. Плохо.
-//
-// Мягкий кадр с размытой подложкой — казался разумной серединой, но на
-// светлом однотонном фоне (белая постель, стена, окно) размытие
-// вырождается в плоскую серую заливку. Получаются пустые поля сверху и
-// снизу — то есть ровно то, за что ругали полосу. Оказалось хуже, чем
-// то, что он заменял.
-//
-// Осталось честное: заполнять кадр целиком. Да, картинка увеличивается
-// почти вдвое и человек становится крупным. Но кадр полный, без полей и
-// без вырожденного фона, и это единственное, что не выглядит дёшево.
-// Куда навести окно — решает модель: она видит, где в кадре человек.
-const fitFilter = ({size, preview, frame}) => {
-	const H = preview ? 960 : 1920;
-	const W = Math.round((H * 9) / 16 / 2) * 2;
-
-	// Вертикальный или квадратный исходник: по высоте, остальное
-	// подрежет сам плеер. Так было всегда, и трогать это незачем.
-	if (!size || size.w <= size.h) return `scale=-2:${H}`;
-
-	if (frame?.fit === 'полоса') {
-		// Единственный случай, где поля оправданы: кадр не про человека, а
-		// про содержимое — запись экрана, таблица, чертёж. Там обрезать
-		// края значит выбросить смысл.
-		//
-		// Ленту держим выше середины: по центру она ложится ровно туда,
-		// где идут субтитры.
-		return (
-			`split[bg][fg];` +
-			`[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,` +
-			`crop=${W}:${H},boxblur=28:2[b];` +
-			`[fg]scale=${W}:-2[f];` +
-			`[b][f]overlay=(W-w)/2:(H-h)*0.34`
-		);
-	}
-
-	// Точка внимания — это место в кадре, а не доля лишней ширины:
-	// модели сказано «0 — у левого края, 1 — у правого», и считать надо
-	// ровно так же, иначе она метит в человека, а окно уезжает мимо.
-	const focus = Math.min(1, Math.max(0, Number(frame?.focus ?? 0.5)));
-
-	let cropW = Math.round((size.h * 9) / 16 / 2) * 2;
-	if (cropW > size.w) cropW = Math.round(size.w / 2) * 2;
-
-	const x = Math.round(Math.min(Math.max(focus * size.w - cropW / 2, 0), size.w - cropW));
-
-	return `crop=${cropW}:${size.h}:${x}:0,scale=${W}:${H}`;
+// Задачи этой не существовало — мы сами её себе создали. Сняли
+// горизонтально — отдаём горизонтально, резать нечего. Вертикальный
+// остаётся вертикальным, как и был.
+export const shapeOf = (size) => {
+	if (!size?.w || !size?.h) return 'вертикально';
+	const k = size.w / size.h;
+	if (k > 1.15) return 'горизонтально';
+	if (k < 0.87) return 'вертикально';
+	return 'квадрат';
 };
 
-const makeProxy = ({source, target, preview, size = null, frame = null}) =>
+const BOX = {
+	вертикально: {w: 1080, h: 1920},
+	горизонтально: {w: 1920, h: 1080},
+	квадрат: {w: 1080, h: 1080},
+};
+
+// Исходник приводится к размеру выдачи без обрезки: вписываем целиком.
+// Пропорции у съёмки и у выдачи совпадают, поэтому «вписать» и
+// «заполнить» здесь одно и то же — полей не остаётся.
+const fitFilter = ({size, preview, shape}) => {
+	const box = BOX[shape] ?? BOX.вертикально;
+	const k = preview ? 0.5 : 1;
+	const W = Math.round((box.w * k) / 2) * 2;
+	const H = Math.round((box.h * k) / 2) * 2;
+
+	// Кадр, пропорции которого не совпали с выдачей — например квадрат
+	// при вертикальной выдаче, — вписываем по большей стороне и
+	// дополняем размытой копией себя. Обрезать не будем: именно на
+	// обрезке мы уже трижды сделали хуже.
+	return (
+		`split[bg][fg];` +
+		`[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,` +
+		`crop=${W}:${H},boxblur=24:2[b];` +
+		`[fg]scale=${W}:${H}:force_original_aspect_ratio=decrease[f];` +
+		`[b][f]overlay=(W-w)/2:(H-h)/2`
+	);
+};
+
+const makeProxy = ({source, target, preview, shape = 'вертикально'}) =>
 	new Promise((resolve, reject) => {
-		// Черновик всё равно уедет в 486×864 — незачем таскать полный кадр
-		const scale = fitFilter({size, preview, frame});
+		// Черновик рендерится вдвое мельче — незачем таскать полный кадр
+		const scale = fitFilter({preview, shape});
 
 		const ff = spawn('ffmpeg', [
 			'-v', 'error', '-y',
@@ -266,21 +256,12 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		size,
 	});
 
-	// Кадрируем после ответа модели: она посмотрела на кадры и сказала,
-	// где в горизонтальном ролике человек. Для вертикального исходника
-	// это ничего не меняет.
-	const wide = size && size.w > size.h;
-	if (wide) {
-		const frame = director?.frame ?? {fit: 'кадр', focus: 0.5};
-		console.log(
-			`  кадр: исходник ${size.w}×${size.h} горизонтальный` +
-			` · ${frame.fit}${frame.fit === 'полоса' ? '' : ` от ${frame.focus}`}`
-		);
-	}
-	await makeProxy({
-		source, target: staged, preview: video.preview_only,
-		size, frame: director?.frame ?? null,
-	});
+	// Форма выдачи повторяет съёмку. Ничего не обрезаем: снял
+	// горизонтально — получишь горизонтально.
+	const shape = shapeOf(size);
+	console.log(`  кадр: исходник ${size?.w}×${size?.h} → выдача ${shape}`);
+
+	await makeProxy({source, target: staged, preview: video.preview_only, shape});
 
 	if (director) {
 		console.log(
@@ -321,6 +302,9 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 			speech,
 			music,
 			source: `uploads/${path.basename(staged)}`,
+			// Форма кадра: композиция берёт из неё свои размеры, чтобы
+			// горизонтальный ролик остался горизонтальным.
+			shape,
 			fromSeconds: 0,
 			durationInSeconds: duration,
 		}),
@@ -368,8 +352,13 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		// Площадка всё равно пережмёт его по-своему.
 		// Дробная высота роняет рендер, поэтому долю проверяем, а не верим
 		// ей на слово: не делится начисто — отдаём в полный кадр.
-		const w = 1080 * config.render.deliverScale;
-		const h = 1920 * config.render.deliverScale;
+		// Считаем от настоящего размера кадра, а не от вертикального:
+		// у горизонтального ролика стороны другие, и доля, дающая целое
+		// число там, здесь может дать дробное.
+		const box = shape === 'горизонтально' ? [1920, 1080]
+			: shape === 'квадрат' ? [1080, 1080] : [1080, 1920];
+		const w = box[0] * config.render.deliverScale;
+		const h = box[1] * config.render.deliverScale;
 		const whole = Number.isInteger(w) && Number.isInteger(h) && w % 2 === 0 && h % 2 === 0;
 
 		if (whole) args.push(`--scale=${config.render.deliverScale}`);
@@ -520,7 +509,7 @@ export const runEngine = async ({video, onProgress, onStage}) => {
 
 	if (ready) {
 		await fs.copyFile(video.source_path, source);
-		montage = shape(ready.scenes, ready.duration);
+		montage = toMontage(ready.scenes, ready.duration);
 		trimmed = ready.pauses ? {cut: ready.pauses.cut, pauses: ready.pauses.count} : null;
 		words = ready.scenes.reduce((n, scene) => n + (scene.words?.length ?? 0), 0);
 		provider = ready.provider ?? 'вычитано';
