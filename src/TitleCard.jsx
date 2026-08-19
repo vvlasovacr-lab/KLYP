@@ -35,7 +35,15 @@ const Piece = ({piece, fit = 1, look, shown = null}) => {
 	const full = cfg.uppercase ? String(piece.text).toUpperCase() : String(piece.text);
 	// Набор буквами режем уже после приведения регистра — иначе счёт
 	// знаков разойдётся с тем, что видно на экране.
-	const text = shown === null ? full : <Typed text={full} shown={shown} />;
+	const text = shown === null ? full : <Typed text={full} shown={shown} grow={isBadge} />;
+
+	// Пока до строки не дошла очередь, прячем её целиком.
+	//
+	// Раньше прозрачным становился только текст, а подложка бейджа
+	// оставалась — и в кадре висел пустой чёрный прямоугольник поперёк
+	// груди. Место под строку при этом сохраняется: без него плашка
+	// прыгала бы по высоте на каждой букве.
+	const waiting = shown === 0;
 
 	return (
 		<span
@@ -49,6 +57,8 @@ const Piece = ({piece, fit = 1, look, shown = null}) => {
 				letterSpacing: isBadge ? '0.01em' : '-0.005em',
 				whiteSpace: 'nowrap',
 				transform: `skewX(${TITLE.skew}deg)`,
+				// Ещё не набранная строка прячется вместе с подложкой.
+				opacity: waiting ? 0 : 1,
 				...(isBadge
 					? {
 							backgroundColor: cfg.bg,
@@ -111,10 +121,20 @@ const Rising = ({delay, fps, frame, mode = 'по-слову', width = 1080, chil
 };
 
 // Набор буквами. Показываем столько знаков, сколько успело напечататься
-// к этому кадру, а остальное держим прозрачным — иначе строка прыгала бы
-// по ширине на каждой букве.
-const Typed = ({text, shown}) => {
+// к этому кадру.
+//
+// У крупной строки ненабранный хвост остаётся на месте прозрачным: без
+// него строка прыгала бы по ширине на каждой букве, а она широкая и
+// прыжок заметен.
+//
+// У бейджа наоборот — хвост убираем совсем. Подложка у него цветная, и
+// зарезервированная ширина выглядит как полоса в пустоту: набралось
+// «НЕ», а красный прямоугольник тянется на весь экран. Бейдж короткий,
+// поэтому растёт он незаметно.
+const Typed = ({text, shown, grow = false}) => {
 	const cut = Math.max(0, Math.min(text.length, shown));
+	if (grow) return <>{text.slice(0, cut)}</>;
+
 	return (
 		<>
 			{text.slice(0, cut)}
