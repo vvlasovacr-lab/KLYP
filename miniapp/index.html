@@ -753,7 +753,7 @@ h1, h2, h3, h4, .display {
             <div class="toggle on" data-flip><div class="sw"></div><div><p>Врезки по смыслу</p><small>Подбираются под то, о чём ты говоришь</small></div></div>
           </div>
 
-          <button class="btn wide" style="margin-top:16px" id="start">Смонтировать · 1 ролик из пакета</button>
+          <button class="btn wide" style="margin-top:16px" id="start">Расшифровать · бесплатно</button>
         </section>
 
         <!-- ══════════ РАСШИФРОВКА ══════════ -->
@@ -778,12 +778,14 @@ h1, h2, h3, h4, .display {
           <div class="card" id="txhint" style="margin-top:14px;display:none">
             <div style="font-size:12.5px;line-height:1.5;color:var(--mute)">
               Поправь только то, что распознано неверно — имена, названия,
-              аббревиатуры. Это ничего не стоит: ролик из пакета спишется,
-              когда нажмёшь кнопку внизу.
+              аббревиатуры. Точки и запятые убирать не надо: в кадр они
+              всё равно не попадут.<br><br>
+              Ролик из пакета спишется, когда нажмёшь кнопку внизу. Пока
+              не нажал — не потрачено ничего.
             </div>
           </div>
 
-          <button class="btn wide" style="margin-top:16px;display:none" id="txgo">Смонтировать · 1 ролик из пакета</button>
+          <button class="btn wide" style="margin-top:16px;display:none" id="txgo">Смонтировать</button>
         </section>
 
         <!-- ══════════ РОЛИКИ ══════════ -->
@@ -1339,7 +1341,7 @@ h1, h2, h3, h4, .display {
       return r.json().then(function(j){ return {ok: r.ok, status: r.status, j: j}; });
     }).then(function(res){
       startBtn.disabled = false;
-      startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
+      startBtn.textContent = 'Расшифровать · бесплатно';
       upbar.style.display = 'none';
 
       if (res.ok){
@@ -1354,7 +1356,7 @@ h1, h2, h3, h4, .display {
 
         // Ролик ушёл на прослушивание: сначала текст, монтаж потом.
         if (res.j.review && !res.j.duplicate){
-          openText(res.j.id);
+          openText(res.j.id, $('t-preview').classList.contains('on'));
           loadMe();
           return;
         }
@@ -1378,7 +1380,7 @@ h1, h2, h3, h4, .display {
       shout('Не вышло отправить', res.j.error || ('Сервер ответил ' + res.status));
     }).catch(function(err){
       startBtn.disabled = false;
-      startBtn.textContent = 'Смонтировать · 1 ролик из пакета';
+      startBtn.textContent = 'Расшифровать · бесплатно';
       upbar.style.display = 'none';
       shout('Не удалось загрузить', String(err.message || err).slice(0, 120));
     });
@@ -1395,6 +1397,11 @@ h1, h2, h3, h4, .display {
   var txlines = $('txlines'), txnote = $('txnote'), txcount = $('txcount');
   var txbar = $('txbar'), txfill = $('txfill'), txgo = $('txgo'), txhint = $('txhint');
   var TX = {id: null, lines: [], edits: {}, timer: null};
+
+  // «1 ролик» и «0.3 ролика» — иначе кнопка читается как ошибка.
+  function priceWord(n){
+    return n === 1 ? '1 ролик из пакета' : (String(n).replace('.', ',') + ' ролика из пакета');
+  }
 
   var clock = function(sec){
     var s = Math.max(0, Math.round(sec));
@@ -1481,8 +1488,9 @@ h1, h2, h3, h4, .display {
     });
   }
 
-  function openText(id){
+  function openText(id, draft){
     TX.id = id;
+    TX.cost = draft ? (META.previewCost || 0.3) : 1;
     TX.lines = [];
     TX.edits = {};
     clearTimeout(TX.timer);
@@ -1495,7 +1503,7 @@ h1, h2, h3, h4, .display {
     txhint.style.display = 'none';
     txgo.style.display = 'none';
     txgo.disabled = false;
-    txgo.textContent = 'Смонтировать · 1 ролик из пакета';
+    txgo.textContent = 'Смонтировать · ' + priceWord(TX.cost);
 
     go('p-text');
     pollText();
@@ -1518,7 +1526,7 @@ h1, h2, h3, h4, .display {
       loadMe();
     }).catch(function(e){
       txgo.disabled = false;
-      txgo.textContent = 'Смонтировать · 1 ролик из пакета';
+      txgo.textContent = 'Смонтировать · ' + priceWord(TX.cost);
       shout('Не вышло запустить', String(e.message || e).slice(0, 120));
     });
   });
@@ -1612,7 +1620,7 @@ h1, h2, h3, h4, .display {
     // Расшифровка готова и ждёт человека — возвращаем его к тексту,
     // а не сообщаем, что ролик «ещё не готов».
     if (v.status === 'listening' || v.status === 'listened'){
-      openText(v.id);
+      openText(v.id, v.preview);
       return;
     }
     if (v.status !== 'ready'){
