@@ -14,7 +14,6 @@ import {
 import {useMemo} from 'react';
 import {Fonts} from './fonts.jsx';
 import {Subtitles} from './Subtitles.jsx';
-import {TitleCard} from './TitleCard.jsx';
 import {Shout} from './Shout.jsx';
 import {BrollCard} from './BrollCard.jsx';
 import {CornerCard} from './CornerCard.jsx';
@@ -192,20 +191,6 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 	// а не выбирается здесь — рендер обязан быть повторяемым.
 	const look = plan?.look ?? null;
 
-	// Плашки может не быть вовсе: модель решает, открывать ролик
-	// заголовком или сразу голосом. Подставлять сюда образец из кода
-	// нельзя — в кадре окажется чужой текст про кредитку.
-	// Настоящий план пришёл без плашки — значит её и не должно быть.
-	// Образец из кода показываем только когда плана нет вовсе: это
-	// открытая студия, а не заказ клиента.
-	const title = tl.title ?? (plan && typeof plan === 'object' ? null : TITLE);
-	const titleOnScreen = Boolean(title) && time >= title.in && time < title.out;
-
-	// Плашка приходит не с нулевой секунды, а чуть позже — и в эту щель
-	// успевали показаться субтитры. В кадре мигала чужая надпись: первые
-	// слова титрами, а через долю секунды их сменял заголовок. Пока
-	// плашка не ушла, субтитров нет вовсе, даже до её появления.
-	const titleHolds = Boolean(title) && time < title.out;
 	const shout = tl.shoutAt(time);
 
 	// Врезка бывает двух видов. Во весь экран — уводит от говорящего,
@@ -336,10 +321,8 @@ export const Reel = ({chunks, plan, speech, source, music = null, fromSeconds = 
 					})
 				: null}
 
-			{/* плашка и выкрик перебивают обычные титры — иначе текст дублируется */}
-			{titleOnScreen ? (
-				<TitleCard title={title} time={time} fromSeconds={fromSeconds} look={look} manner={manner} />
-			) : titleHolds ? null : shout ? (
+			{/* выкрик перебивает обычные титры — иначе текст дублируется */}
+			{shout ? (
 				<Shout shout={shout} fromSeconds={fromSeconds} look={look} />
 			) : (
 				<Subtitles

@@ -920,11 +920,29 @@ export const buildApi = async ({notify}) => {
 				if (!spent.ok) return {error: spent.reason, code: 402};
 
 				const {rows} = await client.query(
+					// Правка наследует от родителя всё, что человек уже выбрал
+					// и выверил.
+					//
+					// Раньше сюда переносился только исходник, и всё остальное
+					// начиналось с нуля: выправленная расшифровка терялась, и
+					// ролик пересобирался по тому, что послышалось машине.
+					// Человек чинил слово, платил за правку — и получал ту же
+					// ошибку обратно. Заодно пропадали выбранный шрифт, свои
+					// врезки и музыка.
 					`INSERT INTO videos (user_id, title, status, template, brief, source_path,
-					                     parent_id, cost, client_token)
-					 VALUES ($1,$2,'queued',$3,$4,$5,$6,1,$7) RETURNING id`,
+					                     parent_id, cost, client_token,
+					                     transcript, font, sources, clips, music,
+					                     duration_sec, preview_only)
+					 VALUES ($1,$2,'queued',$3,$4,$5,$6,1,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
 					[user.id, `${src.title} · правка`, src.template, src.brief,
-					 src.source_path, src.id, token]
+					 src.source_path, src.id, token,
+					 src.transcript ? JSON.stringify(src.transcript) : null,
+					 src.font,
+					 src.sources ? JSON.stringify(src.sources) : null,
+					 src.clips ? JSON.stringify(src.clips) : null,
+					 src.music,
+					 src.duration_sec,
+					 src.preview_only]
 				);
 				const copy = rows[0];
 

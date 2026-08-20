@@ -36,9 +36,12 @@ const readPlan = async (userId, videoId) => {
 		);
 		const {plan, chunks} = JSON.parse(await fs.readFile(file, 'utf8'));
 		return {
-			title: plan?.title?.lines?.map((l) => l.pieces[0].text) ?? [],
 			accents: (plan?.accents ?? []).map(([at, , text, tone]) => ({at, text, tone})),
-			broll: (plan?.broll ?? []).map((b) => ({at: b.from, file: b.file})),
+			broll: (plan?.broll ?? []).map((b) => ({at: b.from, file: b.file, where: b.where})),
+			// Манеру показываем тоже: без неё модель не знает, в каком
+			// почерке был прошлый ролик, и «сделай спокойнее» превращается
+			// в лотерею вместо шага от того, что уже было.
+			manner: plan?.manner ?? null,
 			words: chunks?.length ?? 0,
 		};
 	} catch {
