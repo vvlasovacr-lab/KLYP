@@ -861,8 +861,19 @@ export const buildApi = async ({notify}) => {
 		if (!src) return reply.code(404).send({error: 'Ролик не найден'});
 
 		const marks = Array.isArray(req.body?.marks) ? req.body.marks : [];
-		if (!marks.length) {
-			return reply.code(400).send({error: 'Нет ни одной метки — нечего менять'});
+
+		// Просьба ко всему ролику, а не к моменту.
+		//
+		// Метка на таймлайне годится для «убери вот эту врезку». Но
+		// «сделай текст во всём ролике мельче» или «убери повторы» не
+		// привязаны ни к какой секунде, и раньше сказать такое было
+		// нечем — правка требовала хотя бы одной метки.
+		const note = String(req.body?.note ?? '').trim().slice(0, 1000);
+
+		if (!marks.length && !note) {
+			return reply.code(400).send({
+				error: 'Напиши, что поправить, или отметь момент на таймлайне',
+			});
 		}
 
 		// Пересборка идёт от исходника. Если он сгорел по сроку хранения,
@@ -932,8 +943,8 @@ export const buildApi = async ({notify}) => {
 					`INSERT INTO videos (user_id, title, status, template, brief, source_path,
 					                     parent_id, cost, client_token,
 					                     transcript, font, sources, clips, music,
-					                     duration_sec, preview_only)
-					 VALUES ($1,$2,'queued',$3,$4,$5,$6,1,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+					                     duration_sec, preview_only, fix_note)
+					 VALUES ($1,$2,'queued',$3,$4,$5,$6,1,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
 					[user.id, `${src.title} · правка`, src.template, src.brief,
 					 src.source_path, src.id, token,
 					 src.transcript ? JSON.stringify(src.transcript) : null,
@@ -942,7 +953,8 @@ export const buildApi = async ({notify}) => {
 					 src.clips ? JSON.stringify(src.clips) : null,
 					 src.music,
 					 src.duration_sec,
-					 src.preview_only]
+					 src.preview_only,
+					 note || null]
 				);
 				const copy = rows[0];
 

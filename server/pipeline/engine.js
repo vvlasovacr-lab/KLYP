@@ -290,6 +290,9 @@ const renderOurs = async ({video, source, montage, dir, onProgress, onStage}) =>
 		chunks: rough.chunks,
 		duration: rough.duration,
 		marks: video.marks ?? [],
+		// Просьба ко всему ролику: «сделай текст мельче», «убери повторы».
+		// К секунде она не привязана и живёт отдельно от меток.
+		note: video.fix_note ?? '',
 		previous,
 		brief: video.brief ?? '',
 		frames: seen,

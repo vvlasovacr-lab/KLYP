@@ -21,7 +21,7 @@
 
 import {interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
 import {SAFE, SUB} from './style.js';
-import {MANNER} from './manner.js';
+import {MANNER, SIZE} from './manner.js';
 
 // Прикидка ширины без замеров в DOM — чтобы длинные слова вроде
 // «БЕСПРОЦЕНТНЫХ» сами ужимались и не резались о края кадра.
@@ -174,6 +174,19 @@ export const Subtitles = ({
 		return isAccent(word.start) ? 'крупно' : 'обычно';
 	};
 
+	// Общий размер текста на весь ролик. Отдельно от веса слова: вес
+	// говорит, какое слово важнее соседа, а это — насколько крупен весь
+	// текст в кадре. Без него просьбу «сделай текст мельче во всём
+	// ролике» выполнить было нечем: рычага такого не существовало.
+	const whole = SIZE[manner?.size] ?? 1;
+
+	// Размер слова БЕЗ общего множителя.
+	//
+	// Подгонка под ширину полосы считается именно по нему, а множитель
+	// применяется уже к результату. Иначе выходит бессмыслица: просишь
+	// текст мельче, слова становятся уже, подгонка видит свободное место
+	// и растягивает их обратно — на экране ничего не меняется. Проверено
+	// рендером: два размера давали кадр в кадр одинаковую картинку.
 	const sizeOf = (word) => {
 		const tier = tierOf(word);
 		return tier.size * (SUB.weight[weightOf(word)] ?? 1) * (subs === 'крупно' ? 1.3 : 1);
@@ -190,7 +203,7 @@ export const Subtitles = ({
 		? () => accentTier.size
 		: sizeOf;
 
-	const maxPx = width * SUB.maxWidth;
+	const maxPx = width * SUB.maxWidth * 0.96;
 	const fit = fitScaleOf(group.words, measureSize, measureTier, maxPx, LINES[subs] ?? 1);
 
 	const life = group.until - group.from;
@@ -249,8 +262,8 @@ export const Subtitles = ({
 					flexWrap: 'wrap',
 					justifyContent: 'center',
 					alignItems: 'baseline',
-					columnGap: baseTier.size * fit * 0.26,
-					rowGap: baseTier.size * fit * 0.1,
+					columnGap: baseTier.size * fit * whole * 0.26,
+					rowGap: baseTier.size * fit * whole * 0.1,
 					maxWidth: maxPx,
 					transform: `translateY(${rise}px) scale(${scale})`,
 					transformOrigin: 'center bottom',
@@ -277,7 +290,7 @@ export const Subtitles = ({
 								// Свой размер у каждого слова: мелкое служебное,
 								// крупное ударное. Поправка общая — она держит
 								// группу внутри полосы, не ломая соотношений.
-								fontSize: (subs === 'караоке' ? accentTier.size : sizeOf(word)) * fit,
+								fontSize: (subs === 'караоке' ? accentTier.size : sizeOf(word)) * fit * whole,
 								letterSpacing: '-0.01em',
 								whiteSpace: 'nowrap',
 								opacity: dim,

@@ -187,6 +187,20 @@ const SHAPE = {
 					enum: ['резко', 'свистом', 'наплывом', 'стоп-кадром'],
 					description: 'Как входит врезка',
 				},
+				// Общий размер текста на весь ролик.
+				//
+				// Без этого рычага просьбу «сделай текст мельче во всём
+				// ролике» выполнить было нечем: размер задавался только
+				// весом отдельного слова, а общего множителя не было.
+				size: {
+					type: 'string',
+					enum: ['мельче', 'обычно', 'крупнее'],
+					description:
+						'Общий размер субтитров на весь ролик. «обычно» — как всегда. ' +
+						'«мельче» — когда текста много и он забивает кадр или клиент ' +
+						'прямо просит уменьшить. «крупнее» — короткие рубленые фразы, ' +
+						'которые должны бить',
+				},
 				sound: {
 					type: 'string',
 					enum: ['тихо', 'умеренно', 'плотно'],
@@ -195,7 +209,7 @@ const SHAPE = {
 						'плотно — на каждом ударе, для дерзкого',
 				},
 			},
-			required: ['subs', 'pace', 'brollIn', 'sound'],
+			required: ['subs', 'size', 'pace', 'brollIn', 'sound'],
 			additionalProperties: false,
 		},
 
@@ -365,8 +379,8 @@ let client = null;
 
 // Замечания клиента к прошлой сборке. Он смотрел готовый ролик, тыкал
 // в момент на дорожке и писал своими словами, что не так.
-const complaints = (marks, previous) => {
-	if (!marks?.length) return '';
+const complaints = (marks, previous, note = '') => {
+	if (!marks?.length && !note) return '';
 
 	const was = previous
 		? 'Что было в прошлой сборке:\n' +
@@ -379,9 +393,21 @@ const complaints = (marks, previous) => {
 		.map((m) => `${Number(m.at_sec ?? m.at).toFixed(1)}с — ${String(m.note ?? '').trim()}`)
 		.join('\n');
 
+	// Просьба ко всему ролику. Она не про момент, а про весь монтаж:
+	// «текст мельче», «убери повторы», «спокойнее по звуку». Такую
+	// выполняют целиком, а не в одной точке.
+	const whole = note
+		? 'Клиент просит поправить во всём ролике:\n' + note + '\n\n' +
+			'Это касается всей сборки, а не одной секунды. Применяй ко всему, ' +
+			'где это уместно.\n\n'
+		: '';
+
+	const spots = marks.length
+		? 'Клиент посмотрел прошлую сборку и отметил моменты:\n' + list + '\n\n'
+		: '';
+
 	return (
-		'\n\n## Правки клиента\n\n' + was +
-		'Клиент посмотрел прошлую сборку и отметил моменты:\n' + list + '\n\n' +
+		'\n\n## Правки клиента\n\n' + was + whole + spots +
 		'ЭТО НЕ НОВЫЙ РОЛИК, А ПРАВКА СТАРОГО. Ролик клиенту в целом ' +
 		'подошёл — он попросил поменять только отмеченное.\n\n' +
 		'Ответ должен содержать полную разметку, а не только изменения. ' +
@@ -429,8 +455,15 @@ const NEAR = 2.5;
 const ABOUT_STYLE =
 	/(темп|ритм|быстр|медленн|субтитр|шрифт|цвет|гамм|звук|громк|тих|музык|манер)/i;
 
-const keepUntouched = (plan, marks, previous) => {
-	if (!plan || !marks?.length || !previous) return plan;
+const keepUntouched = (plan, marks, previous, note = '') => {
+	if (!plan || !previous) return plan;
+
+	// Просьба ко всему ролику — это и есть разрешение менять всё. Держать
+	// прошлую сборку в такой правке значило бы не выполнить её: клиент
+	// просит «текст мельче везде», а мы возвращаем прежние акценты.
+	if (note) return plan;
+
+	if (!marks?.length) return plan;
 
 	const at = marks.map((m) => Number(m.at_sec ?? m.at)).filter(Number.isFinite);
 	const near = (t) => at.some((m) => Math.abs(m - Number(t)) <= NEAR);
@@ -462,6 +495,7 @@ const keepUntouched = (plan, marks, previous) => {
 
 export const direct = async ({
 	chunks, duration, marks = [], previous = null, brief = '', frames = [], size = null,
+	note = '',
 }) => {
 	if (!hasModel()) return null;
 	if (!chunks?.length) return null;
@@ -497,7 +531,7 @@ export const direct = async ({
 		`Расшифровка (в квадратных скобках — секунда начала реплики, ` +
 		`через @ — секунда каждого слова):\n\n${transcript(chunks)}` +
 		wanted(brief) +
-		complaints(marks, previous);
+		complaints(marks, previous, note);
 
 	const started = Date.now();
 
@@ -577,7 +611,7 @@ export const direct = async ({
 
 		// Правка обязана оставить нетронутое нетронутым — на слово модели
 		// тут полагаться нельзя, проверено.
-		return keepUntouched(plan, marks, previous);
+		return keepUntouched(plan, marks, previous, note);
 	} catch (err) {
 		// Разметка по правилам никуда не делась — ролик соберётся и без модели.
 		console.warn(`  режиссёр недоступен (${String(err.message).slice(0, 120)}), собираю по правилам`);

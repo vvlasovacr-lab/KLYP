@@ -840,6 +840,20 @@ h1, h2, h3, h4, .display {
             <div><p>Показывать слепые зоны</p><small>Красным — что перекроет интерфейс площадки</small></div>
           </div>
 
+          <!--
+            Правка ко всему ролику.
+            Метка на таймлайне годится для «убери вот эту врезку». Но
+            «сделай текст мельче везде» или «убери повторы» не привязаны
+            ни к какой секунде — раньше сказать такое было нечем.
+          -->
+          <div class="eyebrow">Что поправить во всём ролике</div>
+          <textarea class="field" rows="4" id="wholenote"
+                    placeholder="Напиши своими словами. Например: сделай текст в два раза мельче, убери повторяющиеся врезки, звук потише, темп спокойнее."></textarea>
+          <div style="font-size:11px;color:var(--mute);margin-top:7px;line-height:1.5">
+            Это про весь монтаж целиком. Если надо поправить один момент —
+            отметь его на таймлайне ниже.
+          </div>
+
           <div class="eyebrow">Таймлайн · тапни по моменту</div>
           <div class="track" id="track"><div class="head" id="head" style="left:0"></div></div>
 
@@ -1784,7 +1798,15 @@ h1, h2, h3, h4, .display {
   var redoToken = null;
   redo.addEventListener('click', function(){
     if (!EDIT){ shout('Ролик не выбран', 'Отметь готовый ролик в библиотеке'); return; }
-    if (!MARKS.length){ shout('Нет ни одной метки', 'Отметь моменты, которые надо поменять'); return; }
+
+    // Метка нужна не всегда: правка ко всему ролику к секунде не
+    // привязана, и требовать под неё метку — заставлять человека
+    // выдумывать момент, которого нет.
+    var whole = ($('wholenote').value || '').trim();
+    if (!MARKS.length && !whole){
+      shout('Не сказано, что менять', 'Напиши, что поправить во всём ролике, или отметь момент');
+      return;
+    }
 
     if (!redoToken) redoToken = newToken();
     redo.disabled = true;
@@ -1797,7 +1819,9 @@ h1, h2, h3, h4, .display {
         'X-Request-Id': redoToken
       },
       body: JSON.stringify({
-        marks: MARKS.map(function(m){ return {at: m.t, note: m.x}; })
+        marks: MARKS.map(function(m){ return {at: m.t, note: m.x}; }),
+        // Просьба ко всему ролику. Работает и одна, без единой метки.
+        note: ($('wholenote').value || '').slice(0, 1000)
       })
     }).then(function(r){
       return r.json().catch(function(){ return {}; }).then(function(j){ return {ok: r.ok, j: j}; });
@@ -1806,6 +1830,7 @@ h1, h2, h3, h4, .display {
       if (!res.ok){ shout('Не вышло пересобрать', res.j.error || 'Сервер отказал'); return; }
       redoToken = null;
       MARKS = [];
+      $('wholenote').value = '';
       draw();
       shout(res.j.duplicate ? 'Правка уже в работе' : 'Отправлено в работу',
             'Пересборка с метками · списан 1 ролик');
