@@ -775,11 +775,24 @@ export const buildApi = async ({notify}) => {
 		]);
 		if (!video) return reply.code(404).send({error: 'Ролик не найден'});
 
-		if (video.status !== 'listened') {
+		// Текст правится в двух случаях.
+		//
+		// Первый — перед монтажом, когда ролик только прослушан: тогда
+		// сохранение и запускает сборку, и списывает ролик из пакета.
+		//
+		// Второй — у уже готового ролика. Модель иногда переписывает
+		// субтитры не так, как человек их выверил, и он хочет вернуться
+		// к тексту и поправить снова. Тогда мы только сохраняем: монтаж
+		// он запустит сам через правку, и заплатит один раз за неё, а не
+		// дважды за то же самое.
+		const REOPEN = new Set(['ready', 'expired', 'failed']);
+		const onlySave = REOPEN.has(video.status);
+
+		if (video.status !== 'listened' && !onlySave) {
 			return reply.code(409).send({
 				error: video.status === 'listening'
 					? 'Ещё слушаю запись — подожди немного'
-					: 'Этот ролик уже в монтаже',
+					: 'Этот ролик сейчас в монтаже — дождись его',
 			});
 		}
 
@@ -801,6 +814,19 @@ export const buildApi = async ({notify}) => {
 
 		if (!fixed.length) {
 			return reply.code(400).send({error: 'Текст пустой — в ролике не останется ни слова'});
+		}
+
+		// Правка текста у готового ролика ничего не стоит и ничего не
+		// запускает: она просто ложится в базу и подхватится следующей
+		// пересборкой.
+		if (onlySave) {
+			await q(
+				'UPDATE videos SET transcript = $2, updated_at = NOW() WHERE id = $1',
+				[video.id, JSON.stringify({...video.transcript, scenes: fixed})]
+			);
+			const changed = [...edits.keys()].filter((i) => scenes[i]).length;
+			console.log(`  ролик ${video.id} · текст поправлен · строк ${changed} · монтаж не запускался`);
+			return {ok: true, id: Number(video.id), edited: changed, saved: true};
 		}
 
 		const cost = video.preview_only ? config.render.previewCost : 1;

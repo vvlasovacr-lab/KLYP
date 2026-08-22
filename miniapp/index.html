@@ -846,6 +846,13 @@ h1, h2, h3, h4, .display {
             «сделай текст мельче везде» или «убери повторы» не привязаны
             ни к какой секунде — раньше сказать такое было нечем.
           -->
+          <div class="eyebrow">Субтитры</div>
+          <button class="btn ghost wide sm" id="totext">Поправить текст субтитров</button>
+          <div style="font-size:11px;color:var(--mute);margin-top:7px;line-height:1.5">
+            Открыть расшифровку и поправить слова. Бесплатно: монтаж
+            запустится, когда нажмёшь «Пересобрать».
+          </div>
+
           <div class="eyebrow">Что поправить во всём ролике</div>
           <textarea class="field" rows="4" id="wholenote"
                     placeholder="Напиши своими словами. Например: сделай текст в два раза мельче, убери повторяющиеся врезки, звук потише, темп спокойнее."></textarea>
@@ -1482,6 +1489,15 @@ h1, h2, h3, h4, .display {
         return;
       }
 
+      if (TX.save && (j.lines || []).length){
+        txbar.style.display = 'none';
+        txnote.textContent = 'Поправь слова и сохрани';
+        txhint.style.display = '';
+        txgo.style.display = '';
+        paintText(j.lines);
+        return;
+      }
+
       if (j.status !== 'listened'){
         txbar.style.display = 'none';
         txnote.textContent = 'Расшифровка не получилась';
@@ -1502,9 +1518,13 @@ h1, h2, h3, h4, .display {
     });
   }
 
-  function openText(id, draft){
+  // Экран текста работает в двух режимах. Перед монтажом кнопка внизу
+  // запускает сборку и списывает ролик. У готового ролика она только
+  // сохраняет текст: платить второй раз за то же самое незачем.
+  function openText(id, draft, save){
     TX.id = id;
     TX.cost = draft ? (META.previewCost || 0.3) : 1;
+    TX.save = Boolean(save);
     TX.lines = [];
     TX.edits = {};
     clearTimeout(TX.timer);
@@ -1517,7 +1537,7 @@ h1, h2, h3, h4, .display {
     txhint.style.display = 'none';
     txgo.style.display = 'none';
     txgo.disabled = false;
-    txgo.textContent = 'Смонтировать · ' + priceWord(TX.cost);
+    txgo.textContent = TX.save ? 'Сохранить текст' : ('Смонтировать · ' + priceWord(TX.cost));
 
     go('p-text');
     pollText();
@@ -1533,14 +1553,19 @@ h1, h2, h3, h4, .display {
       return {i: Number(i), text: TX.edits[i]};
     });
 
-    api('/api/videos/' + TX.id + '/transcript', {lines: lines}).then(function(){
+    api('/api/videos/' + TX.id + '/transcript', {lines: lines}).then(function(res){
+      if (res && res.saved){
+        shout('Текст сохранён', 'Он пойдёт в следующую пересборку');
+        go('p-edit');
+        return;
+      }
       shout('Ролик встал в очередь', 'Пришлю ссылку в бот, апп можно закрыть');
       go('p-lib');
       refresh();
       loadMe();
     }).catch(function(e){
       txgo.disabled = false;
-      txgo.textContent = 'Смонтировать · ' + priceWord(TX.cost);
+      txgo.textContent = TX.save ? 'Сохранить текст' : ('Смонтировать · ' + priceWord(TX.cost));
       shout('Не вышло запустить', String(e.message || e).slice(0, 120));
     });
   });
@@ -1796,6 +1821,11 @@ h1, h2, h3, h4, .display {
 
   var redo = $('redo');
   var redoToken = null;
+  $('totext').addEventListener('click', function(){
+    if (!EDIT){ shout('Ролик не выбран', 'Отметь готовый ролик в библиотеке'); return; }
+    openText(EDIT.id, EDIT.preview, true);
+  });
+
   redo.addEventListener('click', function(){
     if (!EDIT){ shout('Ролик не выбран', 'Отметь готовый ролик в библиотеке'); return; }
 
